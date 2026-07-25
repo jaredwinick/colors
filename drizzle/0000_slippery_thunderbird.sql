@@ -1,4 +1,4 @@
-CREATE TABLE `captures` (
+CREATE TABLE IF NOT EXISTS `captures` (
 	`id` text PRIMARY KEY NOT NULL,
 	`captured_at` text NOT NULL,
 	`received_at` text NOT NULL,
@@ -9,6 +9,6 @@ CREATE TABLE `captures` (
 	`device_id` text
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `captures_image_key_unique` ON `captures` (`image_key`);--> statement-breakpoint
-CREATE INDEX `captures_captured_at_idx` ON `captures` (`captured_at`);--> statement-breakpoint
-CREATE INDEX `captures_device_captured_idx` ON `captures` (`device_id`,`captured_at`);
+CREATE UNIQUE INDEX IF NOT EXISTS `captures_image_key_unique` ON `captures` (`image_key`);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `captures_captured_at_idx` ON `captures` (`captured_at`);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `captures_device_captured_idx` ON `captures` (`device_id`,`captured_at`);
