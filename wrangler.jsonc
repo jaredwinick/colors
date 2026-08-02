@@ -4,6 +4,9 @@
   "main": "dist/server/index.js",
   "compatibility_date": "2026-05-15",
   "compatibility_flags": ["nodejs_compat"],
+  "secrets": {
+    "required": ["INGEST_TOKEN"]
+  },
   "assets": {
     "directory": "dist/client",
     "binding": "ASSETS",
