@@ -55,6 +55,50 @@ screen-off test (Samsung menu wording can vary slightly by software build):
 Use Termux's dark theme and the lowest usable brightness while the screen stays
 on; the S9+'s OLED display can retain a bright static image over long periods.
 
+## Capture and normalize one image
+
+The next stage captures one full, unmasked photograph and converts it into a
+consistently oriented, storage-efficient JPEG. It does not mask, extract a
+palette, or upload yet, which keeps those later steps independently testable.
+
+Transfer `android/capture_image.sh` and `android/normalize_capture.py` into the
+same folder on the phone, then install Pillow:
+
+```sh
+pkg install python python-pillow termux-api -y
+mkdir -p ~/colors
+cp ~/storage/downloads/capture_image.sh ~/colors/
+cp ~/storage/downloads/normalize_capture.py ~/colors/
+chmod 700 ~/colors/capture_image.sh
+```
+
+Capture and normalize one photograph:
+
+```sh
+~/colors/capture_image.sh
+```
+
+The command prints JSON describing the completed capture. It writes a JPEG and
+matching JSON sidecar under `~/.local/share/colors/captures`. Raw and incomplete
+files use `~/.local/share/colors/tmp` and are removed automatically. The
+existing `~/.config/colors/camera-id` file selects the camera. Progress messages
+appear while the camera and Pillow are working; the final standard output stays
+as one JSON object so later automation can consume it safely.
+
+Defaults are a 1920-pixel longest edge and JPEG quality 85. Override them with
+configuration files when needed:
+
+```sh
+printf '%s\n' '1600' > ~/.config/colors/max-dimension
+printf '%s\n' '82' > ~/.config/colors/jpeg-quality
+```
+
+The normalizer corrects EXIF orientation, strips the rotation metadata,
+re-encodes as JPEG, verifies that Pillow can decode the result, and rejects any
+file above the ingest API's 12 MB limit. The durable JPEG remains unmasked so
+the complete source view can be uploaded later; Issue #13 will define which
+pixels are sampled for its palette.
+
 ## Install
 
 Install Termux and its matching Termux:API add-on from the same source. Then:
