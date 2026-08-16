@@ -17,6 +17,7 @@
 # python
 __pycache__/
 *.py[cod]
+/android/calibration/local/
 
 # next.js
 /.next/
