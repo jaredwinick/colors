@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "coordinate_space": "normalized",
+  "minimum_included_fraction": 0.1,
+  "minimum_included_pixels": 1,
+  "include_polygon": [[0, 0], [1, 0], [1, 0.66], [0, 0.66]],
+  "exclude_polygons": [],
+  "exclude_rectangles": []
+}
