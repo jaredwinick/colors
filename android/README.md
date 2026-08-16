@@ -96,8 +96,52 @@ printf '%s\n' '82' > ~/.config/colors/jpeg-quality
 The normalizer corrects EXIF orientation, strips the rotation metadata,
 re-encodes as JPEG, verifies that Pillow can decode the result, and rejects any
 file above the ingest API's 12 MB limit. The durable JPEG remains unmasked so
-the complete source view can be uploaded later; Issue #13 will define which
-pixels are sampled for its palette.
+the complete source view can be uploaded later; the fixed sky mask below defines
+which pixels are sampled for its palette.
+
+## Calibrate the fixed sky mask
+
+`sky-mask.json` describes the part of the normalized photograph that may be
+sampled for color. Its coordinates are fractions from 0 to 1, so the same mask
+stays aligned if the capture resolution changes. `include_polygon` traces the
+usable sky. Optional exclusion polygons and rectangles can remove another fixed
+obstruction without changing that outline.
+
+The checked-in mask is calibrated for the permanently mounted Galaxy S9+ view.
+The archived and uploaded JPEG remains complete and unmasked; only palette
+sampling will use the mask.
+
+Transfer `sky_mask.py` and `sky-mask.json` to `~/colors` on the phone. To inspect
+the mask against a completed capture, run:
+
+```sh
+python ~/colors/sky_mask.py preview \
+  --config ~/colors/sky-mask.json \
+  --image ~/.local/share/colors/captures/CAPTURE_ID.jpg \
+  --output ~/storage/shared/colors-mask-preview.jpg
+```
+
+Open `colors-mask-preview.jpg` in Gallery. Cyan is included in palette sampling;
+red is excluded. The boundary should remain just above every roof and tree. A
+small safety margin is intentional because branches can move in the wind.
+
+Recalibrate after the phone or mount moves. Take a representative capture,
+adjust the normalized points in `include_polygon`, generate another preview,
+and inspect it at full size. Validate both the normal capture resolution and a
+second size before deploying the change:
+
+```sh
+python ~/colors/sky_mask.py validate \
+  --config ~/colors/sky-mask.json --width 1440 --height 1920
+python ~/colors/sky_mask.py validate \
+  --config ~/colors/sky-mask.json --width 720 --height 960
+```
+
+The tool rejects malformed normalized coordinates and masks that leave fewer
+than the configured minimum number or fraction of pixels. This prevents a bad
+calibration from silently producing a palette from an empty or tiny region.
+For the complete point-editing, backup, preview, and recovery procedure, see
+[`MASK_CALIBRATION.md`](MASK_CALIBRATION.md).
 
 ## Install
 
