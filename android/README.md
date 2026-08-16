@@ -1,7 +1,7 @@
 # Android sky camera
 
 The lightweight capture client uses Termux rather than a custom Android app.
-It takes a photo, extracts seven weighted colors on the phone, and uploads one
+It takes a photo, extracts six weighted colors on the phone, and uploads one
 multipart request. Palette processing on-device keeps the web endpoint fast and
 inside the small CPU allowance of free serverless hosting.
 
@@ -143,6 +143,25 @@ calibration from silently producing a palette from an empty or tiny region.
 For the complete point-editing, backup, preview, and recovery procedure, see
 [`MASK_CALIBRATION.md`](MASK_CALIBRATION.md).
 
+## Extract the masked sky palette
+
+`extract_palette.py` corrects EXIF orientation, downsamples the normalized view
+to a 180-pixel longest edge, and quantizes only pixels included by
+`sky-mask.json`. It emits six colors by default, sorted by descending weight, in
+the exact JSON shape accepted by the ingest API. The number of colors can be set
+from 3 to 10, and invalid or undersized palettes fail before upload.
+
+Run it against a completed capture:
+
+```sh
+python ~/colors/extract_palette.py \
+  ~/.local/share/colors/captures/CAPTURE_ID.jpg
+```
+
+For the one-command phone smoke test, benchmark, weighted swatch preview,
+optional tuning, and expected output, see
+[`PALETTE_EXTRACTION.md`](PALETTE_EXTRACTION.md).
+
 ## Install
 
 Install Termux and its matching Termux:API add-on from the same source. Then:
@@ -151,7 +170,7 @@ Install Termux and its matching Termux:API add-on from the same source. Then:
 pkg update
 pkg install python python-pillow termux-api curl
 mkdir -p ~/.config/colors ~/colors
-cp capture_and_upload.sh extract_palette.py ~/colors/
+cp capture_and_upload.sh extract_palette.py sky_mask.py sky-mask.json ~/colors/
 chmod +x ~/colors/capture_and_upload.sh
 printf '%s' 'YOUR_LONG_RANDOM_INGEST_TOKEN' > ~/.config/colors/ingest-token
 chmod 600 ~/.config/colors/ingest-token
