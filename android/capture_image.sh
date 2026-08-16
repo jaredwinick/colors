@@ -142,8 +142,7 @@ fi
 
 # Record this immediately after a successful, non-empty camera result.
 captured_at="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
-capture_stamp="$(date -u '+%Y%m%dT%H%M%SZ')"
-capture_id="${capture_stamp}-${RANDOM}${RANDOM}"
+capture_id="$("$PYTHON_BIN" -c 'import uuid; print(uuid.uuid4())')"
 raw_bytes="$(wc -c < "$raw_temp")"
 progress "Captured $raw_bytes bytes; normalizing to a ${max_dimension}px JPEG..."
 

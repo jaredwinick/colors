@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -14,6 +15,10 @@ from PIL import Image, ImageOps
 
 API_MAX_IMAGE_BYTES = 12 * 1024 * 1024
 EXIF_ORIENTATION_TAG = 274
+UUID4_PATTERN = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+    re.IGNORECASE,
+)
 
 
 def positive_integer(value: str) -> int:
@@ -56,8 +61,8 @@ def normalize_capture(
         raise ValueError(f"input image is missing or empty: {input_path}")
     if input_path.resolve() == output_path.resolve():
         raise ValueError("input and output paths must be different")
-    if not capture_id or any(character.isspace() for character in capture_id):
-        raise ValueError("capture ID must be non-empty and contain no whitespace")
+    if not UUID4_PATTERN.fullmatch(capture_id):
+        raise ValueError("capture ID must be a UUIDv4")
     if camera_id < 0:
         raise ValueError("camera ID must be non-negative")
     if max_dimension < 1:

@@ -1,0 +1,1 @@
+ALTER TABLE `captures` ADD `image_sha256` text;

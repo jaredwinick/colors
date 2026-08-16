@@ -34,7 +34,7 @@ class NormalizeCaptureTests(unittest.TestCase):
                 input_path=source_path,
                 output_path=output_path,
                 metadata_output_path=metadata_path,
-                capture_id="test-capture",
+                capture_id="6fa459ea-ee8a-4ca4-894e-db77e160355e",
                 captured_at="2026-08-10T12:34:56Z",
                 camera_id=0,
                 final_image_path=Path("/captures/test-capture.jpg"),
@@ -69,7 +69,7 @@ class NormalizeCaptureTests(unittest.TestCase):
                     input_path=source_path,
                     output_path=output_path,
                     metadata_output_path=metadata_path,
-                    capture_id="too-large",
+                    capture_id="7e57d004-2b97-4e7a-b45f-5387367791cd",
                     captured_at="2026-08-10T12:34:56Z",
                     camera_id=0,
                     final_image_path=Path("/captures/too-large.jpg"),
@@ -78,6 +78,23 @@ class NormalizeCaptureTests(unittest.TestCase):
 
             self.assertFalse(output_path.exists())
             self.assertFalse(metadata_path.exists())
+
+    def test_rejects_non_uuid_capture_id(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            directory = Path(temporary_directory)
+            source_path = directory / "source.jpg"
+            Image.new("RGB", (10, 10), (80, 120, 200)).save(source_path, "JPEG")
+
+            with self.assertRaisesRegex(ValueError, "UUIDv4"):
+                normalize_capture.normalize_capture(
+                    input_path=source_path,
+                    output_path=directory / "normalized.jpg",
+                    metadata_output_path=directory / "capture.json",
+                    capture_id="not-a-uuid",
+                    captured_at="2026-08-10T12:34:56Z",
+                    camera_id=0,
+                    final_image_path=Path("/captures/not-a-uuid.jpg"),
+                )
 
 
 if __name__ == "__main__":

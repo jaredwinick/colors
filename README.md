@@ -46,11 +46,16 @@ the required indexes.
 
 `POST /api/ingest` accepts `multipart/form-data` with:
 
+- `capture_id`: client-generated UUIDv4, reused unchanged for every retry
 - `image`: JPEG, PNG, or WebP, up to 12 MB
 - `captured_at`: ISO-8601 datetime
 - `device_id`: optional source identifier
 - `palette`: JSON array of 3–10 `{ "hex": "#RRGGBB", "weight": 0.25 }`
 
 Send the token as `Authorization: Bearer …`.
+
+The first accepted request returns `201`. An exact retry with the same ID,
+image, timestamp, palette, and device returns the existing capture with `200`
+and `idempotentReplay: true`. Reusing an ID for different content returns `409`.
 
 See [android/README.md](android/README.md) for the phone setup.
