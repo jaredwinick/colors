@@ -12,6 +12,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 mkdir -p "$WORK_DIR"
 captured_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+capture_id="$(python -c 'import uuid; print(uuid.uuid4())')"
 image_path="$WORK_DIR/sky-$stamp.jpg"
 
 termux-camera-photo -c 0 "$image_path"
@@ -25,6 +26,7 @@ curl --fail-with-body --silent --show-error \
   --max-time 120 \
   -H "Authorization: Bearer $token" \
   -F "image=@$image_path;type=image/jpeg" \
+  -F "capture_id=$capture_id" \
   -F "captured_at=$captured_at" \
   -F "device_id=$DEVICE_ID" \
   -F "palette=$palette" \

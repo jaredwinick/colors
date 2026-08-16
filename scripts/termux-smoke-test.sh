@@ -54,11 +54,17 @@ if [[ -z "$TOKEN" ]]; then
 fi
 
 captured_at="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+if [[ ! -r /proc/sys/kernel/random/uuid ]]; then
+  printf 'Android UUID source is unavailable: /proc/sys/kernel/random/uuid\n' >&2
+  exit 1
+fi
+capture_id="$(tr -d '\r\n' < /proc/sys/kernel/random/uuid)"
 
 response="$(
   curl --silent --show-error --fail-with-body \
     --header "Authorization: Bearer $TOKEN" \
     --form "image=@$TEST_IMAGE;type=image/png" \
+    --form-string "capture_id=$capture_id" \
     --form-string 'palette=[{"hex":"#87CEEB","weight":0.5},{"hex":"#FFFFFF","weight":0.3},{"hex":"#F4A261","weight":0.2}]' \
     --form-string "captured_at=$captured_at" \
     --form-string 'device_id=android-termux-smoke-test' \

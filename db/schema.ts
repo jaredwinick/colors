@@ -9,6 +9,7 @@ export const captures = sqliteTable(
     imageKey: text("image_key").notNull().unique(),
     imageType: text("image_type").notNull(),
     imageBytes: integer("image_bytes").notNull(),
+    imageSha256: text("image_sha256"),
     paletteJson: text("palette_json").notNull(),
     deviceId: text("device_id"),
   },

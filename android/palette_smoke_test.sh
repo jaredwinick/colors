@@ -31,7 +31,7 @@ else
   fi
   image_path="${captures[0]}"
   for candidate in "${captures[@]:1}"; do
-    if [[ "$(basename "$candidate")" > "$(basename "$image_path")" ]]; then
+    if [[ "$candidate" -nt "$image_path" ]]; then
       image_path="$candidate"
     fi
   done

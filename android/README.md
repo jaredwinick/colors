@@ -85,6 +85,10 @@ existing `~/.config/colors/camera-id` file selects the camera. Progress messages
 appear while the camera and Pillow are working; the final standard output stays
 as one JSON object so later automation can consume it safely.
 
+Each completed capture receives a UUIDv4 `capture_id`. That ID belongs to the
+photograph, not to an upload attempt. The JPEG and sidecar retain it so every
+retry can send the same value.
+
 Defaults are a 1920-pixel longest edge and JPEG quality 85. Override them with
 configuration files when needed:
 
@@ -178,6 +182,33 @@ chmod 600 ~/.config/colors/ingest-token
 
 Edit `SITE_URL` in `capture_and_upload.sh`, test the camera permission with
 `termux-camera-photo`, then run the script once by hand.
+
+## Retry-safe ingest contract
+
+Every multipart upload must include the capture's UUIDv4 as `capture_id`. Keep
+the capture ID, image bytes, `captured_at`, palette, and `device_id` unchanged
+across retries. The server responds as follows:
+
+- `201` and `idempotentReplay: false` for the first accepted upload.
+- `200` and `idempotentReplay: true` for an exact retry.
+- `409` if the same capture ID is reused with different content or metadata.
+
+The server uses the capture ID for the D1 primary key and combines it with the
+image digest for a deterministic R2 key. Concurrent exact retries converge on
+one row and object. A durable outbox may therefore retry after a timeout without
+trying to determine whether the prior response was lost before or after commit.
+
+After the idempotent endpoint is deployed, Quick Share
+`scripts/termux-idempotency-smoke-test.sh` to the phone and run:
+
+```sh
+bash ~/storage/downloads/termux-idempotency-smoke-test.sh
+```
+
+The smoke test creates one tiny test capture, repeats it exactly, then sends one
+conflicting request. It passes only when the statuses are `201`, `200`, and
+`409`, both successful responses contain the same capture ID, and the second is
+marked as a replay.
 
 ## Schedule
 
