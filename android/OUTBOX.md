@@ -24,6 +24,8 @@ Quick Share these files to the Galaxy S9+:
 - `extract_palette.py`
 - `sky_mask.py`
 - `sky-mask.json`
+- `schedule_capture_job.sh`
+- `schedule_timing.py`
 
 Then run in Termux:
 
@@ -37,7 +39,10 @@ cp ~/storage/downloads/outbox.py ~/colors/
 cp ~/storage/downloads/extract_palette.py ~/colors/
 cp ~/storage/downloads/sky_mask.py ~/colors/
 cp ~/storage/downloads/sky-mask.json ~/colors/
+cp ~/storage/downloads/schedule_capture_job.sh ~/colors/
+cp ~/storage/downloads/schedule_timing.py ~/colors/
 chmod 700 ~/colors/capture_and_upload.sh ~/colors/capture_image.sh ~/colors/outbox.py
+chmod 700 ~/colors/schedule_capture_job.sh ~/colors/schedule_timing.py
 chmod 600 ~/.config/colors/ingest-token
 ```
 
@@ -153,17 +158,18 @@ server capture for the same queued UUID.
 
 ## Schedule
 
-Register the same script as an inexact 15-minute Android job:
+Use the production scheduler controller to register the same script as an
+inexact 15-minute Android job:
 
 ```sh
-termux-job-scheduler \
-  --script "$HOME/colors/capture_and_upload.sh" \
-  --period-ms 900000 \
-  --network any \
-  --persisted true
+~/colors/schedule_capture_job.sh install
 ```
 
 The file lock makes an overlapping invocation exit successfully without doing
 work. After three failed upload attempts for a capture, Termux:API posts a
 generic notification with the pending count and log location; it never includes
 the secret or server response body.
+
+Stable job ID, constraints, battery settings, timing reports, reboot testing,
+and inspect/replace/cancel commands are documented in
+[`SCHEDULING.md`](SCHEDULING.md).

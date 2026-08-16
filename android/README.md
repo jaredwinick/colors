@@ -207,15 +207,10 @@ marked as a replay.
 
 ## Schedule
 
-For a simple 15-minute cadence, Termux:API can register the durable single-cycle
-script with Android JobScheduler:
+For a 15-minute cadence, install the production JobScheduler registration:
 
 ```sh
-termux-job-scheduler \
-  --script "$HOME/colors/capture_and_upload.sh" \
-  --period-ms 900000 \
-  --network any \
-  --persisted true
+~/colors/schedule_capture_job.sh install
 ```
 
 Android treats background schedules as inexact. Disable battery optimization
@@ -234,3 +229,7 @@ bounded exponential backoff, and retains delivered local copies according to a
 configurable policy. Installation, storage layout, recovery testing,
 configuration, logs, and notifications are documented in
 [`OUTBOX.md`](OUTBOX.md).
+
+The stable job ID, exact constraints, interval configuration, timing-drift
+report, reboot acceptance procedure, and inspect/replace/cancel commands are in
+[`SCHEDULING.md`](SCHEDULING.md).
