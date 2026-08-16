@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from datetime import datetime
 from pathlib import Path
 
 
@@ -114,6 +115,13 @@ fi
                 encoding="utf-8"
             ),
         )
+        registered_at = (
+            self.root / "config" / "schedule-registered-at"
+        ).read_text(encoding="utf-8").strip()
+        parsed_registration = datetime.fromisoformat(
+            registered_at.replace("Z", "+00:00")
+        )
+        self.assertIsNotNone(parsed_registration.tzinfo)
         arguments = self.scheduler_log.read_text(encoding="utf-8")
         self.assertIn("--job-id 1701", arguments)
         self.assertIn("--period-ms 900000", arguments)
@@ -129,6 +137,9 @@ fi
         self.assertNotEqual(0, result.returncode)
         self.assertIn("between 900000", result.stderr)
         self.assertFalse(self.scheduler_log.exists())
+        self.assertFalse(
+            (self.root / "config" / "schedule-registered-at").exists()
+        )
 
     def test_status_is_the_default_command(self) -> None:
         result = self.run_script()

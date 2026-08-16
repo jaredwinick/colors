@@ -32,6 +32,20 @@ def parse_start_times(log_text: str) -> list[datetime]:
     return starts
 
 
+def parse_utc_datetime(value: str) -> datetime:
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as error:
+        raise argparse.ArgumentTypeError("must be an ISO-8601 datetime") from error
+    if parsed.tzinfo is None:
+        raise argparse.ArgumentTypeError("must include a timezone")
+    return parsed.astimezone(timezone.utc)
+
+
+def starts_at_or_after(starts: list[datetime], since: datetime) -> list[datetime]:
+    return [started_at for started_at in starts if started_at >= since]
+
+
 def summarize(starts: list[datetime], period_ms: int) -> dict[str, Any]:
     if period_ms < 1:
         raise ValueError("period_ms must be positive")
@@ -91,6 +105,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--log", required=True, type=Path)
     parser.add_argument("--period-ms", required=True, type=positive_integer)
+    parser.add_argument("--since", type=parse_utc_datetime)
     parser.add_argument("--json", action="store_true")
     return parser.parse_args()
 
@@ -100,6 +115,8 @@ def format_report(report: dict[str, Any]) -> str:
         f"Cycles recorded: {report['cycle_count']}",
         f"Target interval: {report['target_interval_seconds']:.0f}s",
     ]
+    if report.get("sample_since") is not None:
+        lines.append(f"Sample since: {report['sample_since']}")
     if report["interval_count"] == 0:
         lines.append("At least two completed cycle starts are needed for drift statistics.")
         return "\n".join(lines)
@@ -123,7 +140,15 @@ def format_report(report: dict[str, Any]) -> str:
 def main() -> None:
     args = parse_args()
     log_text = args.log.read_text(encoding="utf-8") if args.log.is_file() else ""
-    report = summarize(parse_start_times(log_text), args.period_ms)
+    starts = parse_start_times(log_text)
+    if args.since is not None:
+        starts = starts_at_or_after(starts, args.since)
+    report = summarize(starts, args.period_ms)
+    report["sample_since"] = (
+        args.since.isoformat().replace("+00:00", "Z")
+        if args.since is not None
+        else None
+    )
     if args.json:
         print(json.dumps(report, separators=(",", ":"), sort_keys=True))
     else:

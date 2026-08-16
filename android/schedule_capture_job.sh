@@ -13,6 +13,7 @@ DEFAULT_PERIOD_MS=900000
 CONFIG_DIR="${COLORS_CONFIG_DIR:-$HOME/.config/colors}"
 DATA_DIR="${COLORS_DATA_DIR:-$HOME/.local/share/colors}"
 PERIOD_FILE="$CONFIG_DIR/schedule-period-ms"
+REGISTERED_AT_FILE="$CONFIG_DIR/schedule-registered-at"
 CAPTURE_SCRIPT="${COLORS_CAPTURE_JOB_SCRIPT:-$SCRIPT_DIR/capture_and_upload.sh}"
 TIMING_SCRIPT="${COLORS_SCHEDULE_TIMING_SCRIPT:-$SCRIPT_DIR/schedule_timing.py}"
 LOG_FILE="${COLORS_LOG_FILE:-$DATA_DIR/logs/job.log}"
@@ -72,7 +73,8 @@ validate_period() {
 }
 
 show_timing() {
-  local period_ms
+  local period_ms registered_at
+  local timing_arguments=()
   period_ms="$(read_period)"
   validate_period "$period_ms"
   require_command "$PYTHON_BIN" 'pkg install python -y'
@@ -80,14 +82,22 @@ show_timing() {
     printf 'Timing report script is missing: %s\n' "$TIMING_SCRIPT" >&2
     exit 1
   fi
-  "$PYTHON_BIN" "$TIMING_SCRIPT" \
-    --log "$LOG_FILE" \
+  timing_arguments=(
+    --log "$LOG_FILE"
     --period-ms "$period_ms"
+  )
+  if [[ -s "$REGISTERED_AT_FILE" ]]; then
+    registered_at="$(tr -d '\r\n' < "$REGISTERED_AT_FILE")"
+    timing_arguments+=(--since "$registered_at")
+  else
+    printf 'No scheduler registration timestamp exists; including the full log.\n' >&2
+  fi
+  "$PYTHON_BIN" "$TIMING_SCRIPT" "${timing_arguments[@]}"
 }
 
 install_job() {
   local requested_period="${1:-}"
-  local period_ms scheduler_output
+  local period_ms scheduler_output registration_started_at
   period_ms="$(read_period "$requested_period")"
   validate_period "$period_ms"
   require_command termux-job-scheduler 'pkg install termux-api -y'
@@ -102,11 +112,7 @@ install_job() {
     exit 1
   fi
 
-  umask 077
-  mkdir -p "$CONFIG_DIR"
-  printf '%s\n' "$period_ms" > "$PERIOD_FILE"
-  chmod 600 "$PERIOD_FILE"
-
+  registration_started_at="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
   if ! scheduler_output="$(termux-job-scheduler \
     --script "$CAPTURE_SCRIPT" \
     --job-id "$JOB_ID" \
@@ -125,10 +131,17 @@ install_job() {
     exit 1
   fi
 
+  umask 077
+  mkdir -p "$CONFIG_DIR"
+  printf '%s\n' "$period_ms" > "$PERIOD_FILE"
+  printf '%s\n' "$registration_started_at" > "$REGISTERED_AT_FILE"
+  chmod 600 "$PERIOD_FILE" "$REGISTERED_AT_FILE"
+
   cat <<EOF
 
 Colors job $JOB_ID is registered.
 Period: $period_ms ms (inexact)
+Timing sample begins: $registration_started_at
 Network: any
 Charging required: false
 Battery-not-low required: false

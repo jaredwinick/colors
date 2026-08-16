@@ -60,6 +60,19 @@ not a Colors log line
         self.assertIsNone(report["average_interval_seconds"])
         self.assertIn("At least two", schedule_timing.format_report(report))
 
+    def test_filters_manual_cycles_before_scheduler_registration(self) -> None:
+        starts = [
+            datetime(2026, 8, 16, 20, 0, tzinfo=timezone.utc),
+            datetime(2026, 8, 16, 20, 15, tzinfo=timezone.utc),
+            datetime(2026, 8, 16, 21, 2, 24, tzinfo=timezone.utc),
+            datetime(2026, 8, 16, 21, 17, 42, tzinfo=timezone.utc),
+        ]
+        registered_at = datetime(2026, 8, 16, 21, 0, tzinfo=timezone.utc)
+
+        filtered = schedule_timing.starts_at_or_after(starts, registered_at)
+
+        self.assertEqual(starts[2:], filtered)
+
     def test_empty_log_is_supported(self) -> None:
         report = schedule_timing.summarize([], 900000)
 

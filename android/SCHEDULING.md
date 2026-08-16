@@ -80,8 +80,10 @@ are rejected before registration.
 ```
 
 `status` prints every pending Termux job, warns if job `1701` is absent, reports
-timing statistics, and shows the last 30 job-log lines. Cancellation removes
-only job `1701`; captures, queued uploads, delivered copies, and logs remain.
+timing statistics since the latest successful registration, and shows the last
+30 job-log lines. Earlier manual test cycles remain in the log but are excluded
+from drift calculations. Cancellation removes only job `1701`; captures, queued
+uploads, delivered copies, and logs remain.
 
 For a compact timing-only report:
 
