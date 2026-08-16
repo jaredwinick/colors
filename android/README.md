@@ -1,9 +1,10 @@
 # Android sky camera
 
 The lightweight capture client uses Termux rather than a custom Android app.
-It takes a photo, extracts six weighted colors on the phone, and uploads one
-multipart request. Palette processing on-device keeps the web endpoint fast and
-inside the small CPU allowance of free serverless hosting.
+It takes a photo, extracts six weighted colors on the phone, durably queues the
+JPEG and metadata, and uploads with safe retries. Palette processing on-device
+keeps the web endpoint fast and inside the small CPU allowance of free
+serverless hosting.
 
 ## First: prove unattended camera access
 
@@ -168,20 +169,14 @@ optional tuning, and expected output, see
 
 ## Install
 
-Install Termux and its matching Termux:API add-on from the same source. Then:
+Install Termux and its matching Termux:API add-on from the same source. The
+complete scheduled client now consists of the capture, mask, palette, outbox,
+and single-cycle job files. See [`OUTBOX.md`](OUTBOX.md) for the Quick Share
+file list and exact installation commands.
 
-```sh
-pkg update
-pkg install python python-pillow termux-api curl
-mkdir -p ~/.config/colors ~/colors
-cp capture_and_upload.sh extract_palette.py sky_mask.py sky-mask.json ~/colors/
-chmod +x ~/colors/capture_and_upload.sh
-printf '%s' 'YOUR_LONG_RANDOM_INGEST_TOKEN' > ~/.config/colors/ingest-token
-chmod 600 ~/.config/colors/ingest-token
-```
-
-Edit `SITE_URL` in `capture_and_upload.sh`, test the camera permission with
-`termux-camera-photo`, then run the script once by hand.
+The production ingest URL is built in. The shared secret remains only in
+`~/.config/colors/ingest-token` with mode `600`; it is never placed in a script,
+command-line argument, or log.
 
 ## Retry-safe ingest contract
 
@@ -212,8 +207,8 @@ marked as a replay.
 
 ## Schedule
 
-For a simple 15-minute cadence, Termux:API can register the script with Android
-JobScheduler:
+For a simple 15-minute cadence, Termux:API can register the durable single-cycle
+script with Android JobScheduler:
 
 ```sh
 termux-job-scheduler \
@@ -232,3 +227,10 @@ Tasker may be more reliable on heavily customized Android builds.
 Use the rear camera (`-c 0`) unless `termux-camera-info` reports another ID for
 the lens you mounted. Capture only property and views you are entitled to
 record.
+
+The job retries oldest captures before creating new work, preserves pending
+files through reboots and network failures, prevents overlapping runs, applies
+bounded exponential backoff, and retains delivered local copies according to a
+configurable policy. Installation, storage layout, recovery testing,
+configuration, logs, and notifications are documented in
+[`OUTBOX.md`](OUTBOX.md).
