@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="station_controls">Station controls</string>
+    <string name="interval_minutes">UTC interval (minutes)</string>
+    <string name="start_station">Start station</string>
+    <string name="stop_station">Stop station</string>
+    <string name="capture_now">Capture test now</string>
+    <string name="export_report">Share timing report</string>
+    <string name="status_heading">Status</string>
+    <string name="timing_heading">Timing report</string>
+    <string name="default_interval">15</string>
+    <string name="no_timing_trial">No scheduled timing trial has started.</string>
+</resources>
