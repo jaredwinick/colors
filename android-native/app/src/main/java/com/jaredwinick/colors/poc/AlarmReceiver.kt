@@ -15,6 +15,12 @@ class AlarmReceiver : BroadcastReceiver() {
             StationService.EXTRA_SCHEDULED_FOR,
             preferences.nextCaptureAt,
         )
+        val receivedAt = System.currentTimeMillis()
+
+        // Precision mode normally replaces this fallback alarm with the next
+        // slot before it can be delivered. Ignore a stale delivery if the
+        // in-process timer already claimed and captured this slot.
+        if (preferences.isScheduledSlotClaimed(scheduledFor)) return
 
         // Protect the cadence before camera work begins. Every later alarm is
         // calculated from a fresh UTC boundary, never from the prior completion.
@@ -24,6 +30,7 @@ class AlarmReceiver : BroadcastReceiver() {
         val serviceIntent = Intent(context, StationService::class.java)
             .setAction(StationService.ACTION_CAPTURE)
             .putExtra(StationService.EXTRA_SCHEDULED_FOR, scheduledFor)
+            .putExtra(StationService.EXTRA_TRIGGER_RECEIVED_AT, receivedAt)
         ContextCompat.startForegroundService(context, serviceIntent)
     }
 

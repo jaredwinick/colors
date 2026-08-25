@@ -10,4 +10,7 @@
     <string name="timing_heading">Timing report</string>
     <string name="default_interval">15</string>
     <string name="no_timing_trial">No scheduled timing trial has started.</string>
+    <string name="precision_mode">Precision experiment (powered phone)</string>
+    <string name="precision_mode_description">Keeps the station CPU awake between captures and uses an in-process UTC timer. The exact alarm remains as a recovery fallback.</string>
+    <string name="battery_settings">Open battery optimization settings</string>
 </resources>

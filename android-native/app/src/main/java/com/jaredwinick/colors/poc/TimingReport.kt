@@ -13,6 +13,8 @@ data class TimingSummary(
     val p95LatenessMs: Long?,
     val worstLatenessMs: Long?,
     val within60SecondsPercent: Double?,
+    val timerCaptures: Int,
+    val alarmCaptures: Int,
 )
 
 object TimingReport {
@@ -49,6 +51,14 @@ object TimingReport {
             p95LatenessMs = p95,
             worstLatenessMs = lateness.maxOrNull(),
             within60SecondsPercent = within60,
+            timerCaptures = sessionRecords.count {
+                it.result == CaptureDiagnostic.RESULT_SUCCESS &&
+                    it.triggerSource == CaptureDiagnostic.TRIGGER_TIMER
+            },
+            alarmCaptures = sessionRecords.count {
+                it.result == CaptureDiagnostic.RESULT_SUCCESS &&
+                    it.triggerSource == CaptureDiagnostic.TRIGGER_ALARM
+            },
         )
     }
 
@@ -59,6 +69,7 @@ object TimingReport {
         appendLine("Missing slots: ${summary.missingSlots}")
         appendLine("Duplicate captures: ${summary.duplicateCaptures}")
         appendLine("Duplicate alarms skipped: ${summary.duplicateAlarms}")
+        appendLine("Timer / alarm captures: ${summary.timerCaptures} / ${summary.alarmCaptures}")
         appendLine("Within 60s: ${summary.within60SecondsPercent?.formatPercent() ?: "—"}")
         appendLine("P95 lateness: ${summary.p95LatenessMs?.formatDuration() ?: "—"}")
         append("Worst lateness: ${summary.worstLatenessMs?.formatDuration() ?: "—"}")
@@ -66,9 +77,11 @@ object TimingReport {
 
     fun csv(records: List<CaptureDiagnostic>): String = buildString {
         appendLine(
-            "record_id,session_id,slot_id,scheduled_for,alarm_received_at,capture_started_at," +
-                "captured_at,completed_at,alarm_lateness_ms,capture_lateness_ms,result,error_code," +
-                "screen_interactive,charging,image_path,manual",
+            "record_id,session_id,slot_id,scheduled_for,trigger_source,trigger_received_at," +
+                "service_received_at,service_dispatch_ms,capture_started_at,captured_at,completed_at," +
+                "trigger_lateness_ms,capture_lateness_ms,result,error_code,screen_interactive," +
+                "charging,plugged,battery_percent,device_idle_mode,power_save_mode," +
+                "battery_optimization_exempt,station_wake_lock_held,image_path,manual",
         )
         records.sortedBy { it.scheduledFor }.forEach { record ->
             appendLine(
@@ -77,7 +90,10 @@ object TimingReport {
                     record.sessionId,
                     record.slotId,
                     UtcSchedule.format(record.scheduledFor),
+                    record.triggerSource,
                     UtcSchedule.format(record.alarmReceivedAt),
+                    UtcSchedule.format(record.serviceReceivedAt),
+                    record.serviceDispatchMs,
                     UtcSchedule.format(record.captureStartedAt),
                     UtcSchedule.format(record.capturedAt),
                     UtcSchedule.format(record.completedAt),
@@ -87,6 +103,12 @@ object TimingReport {
                     record.errorCode ?: "",
                     record.screenInteractive,
                     record.charging,
+                    record.plugged,
+                    record.batteryPercent ?: "",
+                    record.deviceIdleMode,
+                    record.powerSaveMode,
+                    record.batteryOptimizationExempt,
+                    record.stationWakeLockHeld,
                     record.imagePath ?: "",
                     record.manual,
                 ).joinToString(",") { csvEscape(it.toString()) },

@@ -11,6 +11,7 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
 import android.widget.Button
+import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.TextView
 import android.widget.Toast
@@ -25,6 +26,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var preferences: StationPreferences
     private lateinit var diagnostics: DiagnosticStore
     private lateinit var intervalInput: EditText
+    private lateinit var precisionModeInput: CheckBox
     private lateinit var statusText: TextView
     private lateinit var reportText: TextView
     private val refreshHandler = Handler(Looper.getMainLooper())
@@ -55,9 +57,11 @@ class MainActivity : AppCompatActivity() {
         preferences = StationPreferences(this)
         diagnostics = DiagnosticStore(this)
         intervalInput = findViewById(R.id.intervalMinutes)
+        precisionModeInput = findViewById(R.id.precisionMode)
         statusText = findViewById(R.id.statusText)
         reportText = findViewById(R.id.reportText)
         intervalInput.setText(String.format(Locale.US, "%d", preferences.intervalMinutes))
+        precisionModeInput.isChecked = preferences.precisionMode
 
         findViewById<Button>(R.id.startStation).setOnClickListener {
             withCameraPermission(::startStation)
@@ -67,6 +71,9 @@ class MainActivity : AppCompatActivity() {
             withCameraPermission(::captureNow)
         }
         findViewById<Button>(R.id.exportReport).setOnClickListener { shareReport() }
+        findViewById<Button>(R.id.batterySettings).setOnClickListener {
+            openBatteryOptimizationSettings()
+        }
     }
 
     override fun onResume() {
@@ -107,7 +114,21 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        preferences.start(interval)
+        val precisionMode = precisionModeInput.isChecked
+        if (precisionMode) {
+            val power = PowerSnapshotReader.read(this)
+            if (!power.plugged) {
+                toast("Connect external power before starting the precision experiment")
+                return
+            }
+            if (!power.batteryOptimizationExempt) {
+                openBatteryOptimizationSettings()
+                toast("Turn battery optimization off for Colors Camera POC, then start again")
+                return
+            }
+        }
+
+        preferences.start(interval, precisionMode)
         val intent = Intent(this, StationService::class.java).setAction(StationService.ACTION_START)
         ContextCompat.startForegroundService(this, intent)
         toast("Station started")
@@ -133,10 +154,16 @@ class MainActivity : AppCompatActivity() {
     private fun refresh() {
         val cameraGranted = ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) ==
             PackageManager.PERMISSION_GRANTED
+        val power = PowerSnapshotReader.read(this)
         statusText.text = buildString {
             appendLine("Station: ${if (preferences.enabled) "RUNNING" else "STOPPED"}")
+            appendLine("Mode: ${if (preferences.precisionMode) "PRECISION EXPERIMENT" else "ALARM ONLY"}")
             appendLine("Camera permission: ${if (cameraGranted) "granted" else "required"}")
             appendLine("Exact alarms: ${if (canScheduleExactAlarms()) "available" else "permission required"}")
+            appendLine("External power: ${if (power.plugged) "connected" else "not connected"}")
+            appendLine("Charging / battery: ${if (power.charging) "yes" else "no"} / ${power.batteryPercent?.let { "$it%" } ?: "—"}")
+            appendLine("Battery optimization: ${if (power.batteryOptimizationExempt) "off" else "ON"}")
+            appendLine("Device idle / power save: ${power.deviceIdleMode} / ${power.powerSaveMode}")
             appendLine("Interval: ${preferences.intervalMinutes} minutes")
             appendLine("Next capture: ${UtcSchedule.format(preferences.nextCaptureAt)}")
             appendLine("Last capture: ${UtcSchedule.format(preferences.lastCaptureAt)}")
@@ -189,6 +216,10 @@ class MainActivity : AppCompatActivity() {
                 ),
             )
         }
+    }
+
+    private fun openBatteryOptimizationSettings() {
+        startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
     }
 
     private fun toast(message: String) {

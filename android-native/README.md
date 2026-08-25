@@ -25,6 +25,9 @@ API, or change Cloudflare data.
   `PROCESS_INTERRUPTED` result instead of a silent loss.
 - Shows a live timing summary and shares the complete CSV report through the
   Android share sheet.
+- Offers an opt-in precision experiment that holds a partial wake lock while
+  station mode is active and uses an in-process UTC timer. The exact alarm stays
+  registered as a recovery fallback if Android removes the process.
 
 The APK targets Android 10 (API 29). The manifest includes forward-compatible
 camera foreground-service and exact-alarm declarations, but newer Android
@@ -109,6 +112,45 @@ a new timing session so older results do not contaminate the live summary.
 
 `Capture test now` is deliberately excluded from scheduled timing statistics.
 
+## Precision wake-lock experiment
+
+This second trial is for the permanently mounted, externally powered phone. It
+tests whether keeping the CPU awake removes the roughly 170-second Doze delay
+seen in the first alarm-only CSV. It is deliberately optional because a
+continuous partial wake lock consumes more energy than alarm-only mode.
+
+Before replacing an earlier debug build, share its CSV. GitHub Actions debug
+APKs may use different signing keys, so Android may require uninstalling the old
+build before installing the new one; uninstalling also removes the app's local
+JPEGs and diagnostics.
+
+1. Keep the Galaxy S9+ connected to reliable external power.
+2. Confirm battery optimization is off for **Colors Camera POC**. The app's
+   **Open battery optimization settings** button opens the relevant system list.
+3. Leave the interval at `15` and select **Precision experiment (powered phone)**.
+4. Tap **Start station**. The app refuses to start precision mode if power is
+   disconnected or Android still reports battery optimization as enabled.
+5. Turn the screen off and leave the station running for at least six hours.
+   Twenty-four hours gives a better comparison with the alarm-only trial.
+6. Share the new CSV and attach it to Issue #27.
+
+The status display should say `PRECISION EXPERIMENT`. In the new CSV:
+
+- `trigger_source` should normally be `TIMER`; `ALARM` means the recovery
+  fallback was needed.
+- `station_wake_lock_held`, `plugged`, and `battery_optimization_exempt` should
+  be `true` for precision captures.
+- `trigger_lateness_ms` measures timer or alarm delivery against the intended
+  UTC boundary, while `capture_lateness_ms` includes CameraX work.
+- `device_idle_mode` shows whether Android considered the phone to be in Doze,
+  which lets us test the wake lock rather than infer its effect.
+
+If the phone becomes noticeably warm, loses charge while plugged in, or must be
+removed from dedicated station use, stop the experiment. Stopping station mode
+releases the continuous wake lock immediately. If external power is removed
+after startup, the next timer check releases the wake lock and leaves the exact
+alarm as the lower-power fallback.
+
 ## Avoid camera contention with Termux
 
 Development and a one-off native camera test can leave the production Termux
@@ -151,10 +193,11 @@ Issue #17 baseline.
 
 ## Diagnostic meanings
 
-Each CSV row contains the intended UTC slot, alarm receipt, capture start,
-successful capture, completion, alarm/capture lateness, screen and charging
-state, result, and a safe error code. `captured_at` is the actual CameraX success
-time and is never replaced with the intended slot.
+Each CSV row contains the intended UTC slot, trigger source and receipt,
+foreground-service receipt, capture start, successful capture, completion,
+trigger/capture lateness, screen and power state, result, and a safe error code.
+`captured_at` is the actual CameraX success time and is never replaced with the
+intended slot.
 
 Common error codes:
 
@@ -168,6 +211,8 @@ Common error codes:
 | `DUPLICATE_SLOT` | A repeated alarm referred to an already claimed UTC slot. |
 | `PROCESS_INTERRUPTED` | Android killed the process after a slot began; the pending record was recovered. |
 | `ALARM_SCHEDULE_FAILED` | The next exact alarm could not be registered. |
+| `PRECISION_REQUIRES_EXTERNAL_POWER` | Precision mode stopped holding its station wake lock because external power was absent. |
+| `PRECISION_REQUIRES_BATTERY_EXEMPTION` | Precision mode could not start while battery optimization was enabled. |
 
 ## Stop or uninstall
 

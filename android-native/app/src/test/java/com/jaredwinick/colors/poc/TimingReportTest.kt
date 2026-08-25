@@ -1,6 +1,7 @@
 package com.jaredwinick.colors.poc
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class TimingReportTest {
@@ -27,6 +28,8 @@ class TimingReportTest {
         assertEquals(1, summary.missingSlots)
         assertEquals(1, summary.duplicateCaptures)
         assertEquals(0, summary.duplicateAlarms)
+        assertEquals(0, summary.timerCaptures)
+        assertEquals(0, summary.alarmCaptures)
         assertEquals(75_000L, summary.p95LatenessMs)
         assertEquals(75_000L, summary.worstLatenessMs)
     }
@@ -40,6 +43,47 @@ class TimingReportTest {
         assertEquals(1, summary.expectedSlots)
         assertEquals(0, summary.recordedSlots)
         assertEquals(0, summary.successfulCaptures)
+    }
+
+    @Test
+    fun `summary distinguishes precision timer from fallback alarm captures`() {
+        val first = 1_800_000L
+        val records = listOf(
+            success("timer", first, 1_000L).copy(triggerSource = CaptureDiagnostic.TRIGGER_TIMER),
+            success("alarm", first + 900_000L, 2_000L)
+                .copy(triggerSource = CaptureDiagnostic.TRIGGER_ALARM),
+        )
+
+        val summary = TimingReport.summarize(
+            records = records,
+            sessionId = "trial",
+            firstScheduledAt = first,
+            throughMillis = first + 900_000L,
+            intervalMinutes = 15,
+        )
+
+        assertEquals(1, summary.timerCaptures)
+        assertEquals(1, summary.alarmCaptures)
+    }
+
+    @Test
+    fun `csv includes trigger dispatch and power diagnostics`() {
+        val record = success("timer", 1_800_000L, 1_000L).copy(
+            triggerSource = CaptureDiagnostic.TRIGGER_TIMER,
+            serviceReceivedAt = 1_800_250L,
+            plugged = true,
+            batteryPercent = 91,
+            batteryOptimizationExempt = true,
+            stationWakeLockHeld = true,
+        )
+
+        val csv = TimingReport.csv(listOf(record))
+
+        assertTrue(csv.contains("trigger_source"))
+        assertTrue(csv.contains("service_dispatch_ms"))
+        assertTrue(csv.contains("station_wake_lock_held"))
+        assertTrue(csv.contains("\"TIMER\""))
+        assertTrue(csv.contains("\"91\""))
     }
 
     private fun success(id: String, scheduledFor: Long, lateness: Long) = CaptureDiagnostic(

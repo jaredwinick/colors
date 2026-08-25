@@ -9,6 +9,7 @@ class StationPreferences(context: Context) {
 
     val enabled: Boolean get() = preferences.getBoolean(KEY_ENABLED, false)
     val intervalMinutes: Int get() = preferences.getInt(KEY_INTERVAL, DEFAULT_INTERVAL_MINUTES)
+    val precisionMode: Boolean get() = preferences.getBoolean(KEY_PRECISION_MODE, false)
     val nextCaptureAt: Long get() = preferences.getLong(KEY_NEXT_CAPTURE, 0)
     val lastCaptureAt: Long get() = preferences.getLong(KEY_LAST_CAPTURE, 0)
     val lastError: String? get() = preferences.getString(KEY_LAST_ERROR, null)
@@ -16,12 +17,17 @@ class StationPreferences(context: Context) {
     val firstScheduledAt: Long get() = preferences.getLong(KEY_FIRST_SCHEDULED, 0)
     val sessionStoppedAt: Long get() = preferences.getLong(KEY_SESSION_STOPPED, 0)
 
-    fun start(intervalMinutes: Int, nowMillis: Long = System.currentTimeMillis()) {
+    fun start(
+        intervalMinutes: Int,
+        precisionMode: Boolean = false,
+        nowMillis: Long = System.currentTimeMillis(),
+    ) {
         UtcSchedule.validateIntervalMinutes(intervalMinutes)
         val first = UtcSchedule.nextBoundaryMillis(nowMillis, intervalMinutes)
         preferences.edit()
             .putBoolean(KEY_ENABLED, true)
             .putInt(KEY_INTERVAL, intervalMinutes)
+            .putBoolean(KEY_PRECISION_MODE, precisionMode)
             .putString(KEY_SESSION_ID, UUID.randomUUID().toString())
             .putLong(KEY_FIRST_SCHEDULED, first)
             .putLong(KEY_NEXT_CAPTURE, first)
@@ -65,11 +71,16 @@ class StationPreferences(context: Context) {
         return preferences.edit().putStringSet(KEY_CLAIMED_SLOTS, claimed).commit()
     }
 
+    @Synchronized
+    fun isScheduledSlotClaimed(scheduledFor: Long): Boolean =
+        scheduledFor.toString() in preferences.getStringSet(KEY_CLAIMED_SLOTS, emptySet()).orEmpty()
+
     companion object {
         const val DEFAULT_INTERVAL_MINUTES = 15
         private const val FILE_NAME = "station"
         private const val KEY_ENABLED = "enabled"
         private const val KEY_INTERVAL = "interval_minutes"
+        private const val KEY_PRECISION_MODE = "precision_mode"
         private const val KEY_NEXT_CAPTURE = "next_capture_at"
         private const val KEY_LAST_CAPTURE = "last_capture_at"
         private const val KEY_LAST_ERROR = "last_error"

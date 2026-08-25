@@ -87,6 +87,9 @@ class DiagnosticStore(context: Context) {
         put("slot_id", slotId)
         put("scheduled_for", scheduledFor)
         put("alarm_received_at", alarmReceivedAt)
+        put("trigger_source", triggerSource)
+        put("service_received_at", serviceReceivedAt)
+        put("service_dispatch_ms", serviceDispatchMs)
         putNullable("capture_started_at", captureStartedAt)
         putNullable("captured_at", capturedAt)
         putNullable("completed_at", completedAt)
@@ -96,6 +99,12 @@ class DiagnosticStore(context: Context) {
         putNullable("error_code", errorCode)
         put("screen_interactive", screenInteractive)
         put("charging", charging)
+        put("plugged", plugged)
+        putNullable("battery_percent", batteryPercent)
+        put("device_idle_mode", deviceIdleMode)
+        put("power_save_mode", powerSaveMode)
+        put("battery_optimization_exempt", batteryOptimizationExempt)
+        put("station_wake_lock_held", stationWakeLockHeld)
         putNullable("image_path", imagePath)
         put("manual", manual)
     }
@@ -110,6 +119,8 @@ class DiagnosticStore(context: Context) {
         slotId = json.getString("slot_id"),
         scheduledFor = json.getLong("scheduled_for"),
         alarmReceivedAt = json.getLong("alarm_received_at"),
+        triggerSource = json.optString("trigger_source", CaptureDiagnostic.TRIGGER_UNKNOWN),
+        serviceReceivedAt = json.optLong("service_received_at", json.getLong("alarm_received_at")),
         captureStartedAt = json.nullableLong("capture_started_at"),
         capturedAt = json.nullableLong("captured_at"),
         completedAt = json.nullableLong("completed_at"),
@@ -117,6 +128,12 @@ class DiagnosticStore(context: Context) {
         errorCode = json.nullableString("error_code"),
         screenInteractive = json.optBoolean("screen_interactive"),
         charging = json.optBoolean("charging"),
+        plugged = json.optBoolean("plugged"),
+        batteryPercent = json.nullableInt("battery_percent"),
+        deviceIdleMode = json.optBoolean("device_idle_mode"),
+        powerSaveMode = json.optBoolean("power_save_mode"),
+        batteryOptimizationExempt = json.optBoolean("battery_optimization_exempt"),
+        stationWakeLockHeld = json.optBoolean("station_wake_lock_held"),
         imagePath = json.nullableString("image_path"),
         manual = json.optBoolean("manual"),
     )
@@ -126,4 +143,7 @@ class DiagnosticStore(context: Context) {
 
     private fun JSONObject.nullableString(key: String): String? =
         if (isNull(key) || !has(key)) null else getString(key)
+
+    private fun JSONObject.nullableInt(key: String): Int? =
+        if (isNull(key) || !has(key)) null else getInt(key)
 }
