@@ -65,6 +65,7 @@ class StationService : LifecycleService() {
                         EXTRA_TRIGGER_RECEIVED_AT,
                         System.currentTimeMillis(),
                     ),
+                    slotAlreadyClaimed = false,
                 )
             }
             ACTION_CAPTURE_TEST -> capture(
@@ -72,6 +73,7 @@ class StationService : LifecycleService() {
                 manual = true,
                 triggerSource = CaptureDiagnostic.TRIGGER_MANUAL,
                 triggerReceivedAt = System.currentTimeMillis(),
+                slotAlreadyClaimed = false,
             )
             null -> if (preferences.enabled) restoreSchedule() else stopSelf()
         }
@@ -103,6 +105,7 @@ class StationService : LifecycleService() {
         manual: Boolean,
         triggerSource: String,
         triggerReceivedAt: Long,
+        slotAlreadyClaimed: Boolean,
     ) {
         val serviceReceivedAt = System.currentTimeMillis()
         if (!manual && !preferences.enabled) return
@@ -128,7 +131,7 @@ class StationService : LifecycleService() {
             manual = manual,
         )
 
-        if (!manual && !preferences.claimScheduledSlot(scheduledFor)) {
+        if (!manual && !slotAlreadyClaimed && !preferences.claimScheduledSlot(scheduledFor)) {
             diagnostics.complete(
                 record.copy(
                     completedAt = System.currentTimeMillis(),
@@ -342,9 +345,23 @@ class StationService : LifecycleService() {
             return
         }
 
-        // Replace the still-pending fallback alarm with the next UTC slot
-        // before beginning camera work. If the process dies, AlarmManager
-        // remains available to restart the station.
+        // Own the slot before touching AlarmManager. A fallback alarm that is
+        // already being delivered will therefore observe this claim and exit.
+        if (!preferences.claimScheduledSlot(scheduledFor)) {
+            capture(
+                scheduledFor = scheduledFor,
+                manual = false,
+                triggerSource = CaptureDiagnostic.TRIGGER_TIMER,
+                triggerReceivedAt = firedAt,
+                slotAlreadyClaimed = false,
+            )
+            return
+        }
+
+        // Cancel this slot's uniquely identified fallback, then register the
+        // next one. If cancellation races with delivery, the old alarm still
+        // contains this slot (never the next slot) and exits on the claim above.
+        AlarmScheduler(this).cancelFallback(scheduledFor)
         runCatching {
             AlarmScheduler(this).scheduleNext(maxOf(firedAt, scheduledFor))
         }.onSuccess(::configurePrecisionRuntime)
@@ -355,6 +372,7 @@ class StationService : LifecycleService() {
             manual = false,
             triggerSource = CaptureDiagnostic.TRIGGER_TIMER,
             triggerReceivedAt = firedAt,
+            slotAlreadyClaimed = true,
         )
     }
 

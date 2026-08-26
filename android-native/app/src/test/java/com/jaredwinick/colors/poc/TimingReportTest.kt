@@ -25,6 +25,7 @@ class TimingReportTest {
         assertEquals(3, summary.expectedSlots)
         assertEquals(2, summary.recordedSlots)
         assertEquals(3, summary.successfulCaptures)
+        assertEquals(0, summary.earlyCaptures)
         assertEquals(1, summary.missingSlots)
         assertEquals(1, summary.duplicateCaptures)
         assertEquals(0, summary.duplicateAlarms)
@@ -84,6 +85,54 @@ class TimingReportTest {
         assertTrue(csv.contains("station_wake_lock_held"))
         assertTrue(csv.contains("\"TIMER\""))
         assertTrue(csv.contains("\"91\""))
+    }
+
+    @Test
+    fun `skipped and early records do not hide missing scheduled captures`() {
+        val first = 1_800_000L
+        val second = first + 900_000L
+        val records = listOf(
+            success("first", first, 1_500L)
+                .copy(triggerSource = CaptureDiagnostic.TRIGGER_TIMER),
+            CaptureDiagnostic(
+                recordId = "overlap",
+                sessionId = "trial",
+                slotId = "utc-$second",
+                scheduledFor = second,
+                alarmReceivedAt = first + 100L,
+                completedAt = first + 100L,
+                result = "SKIPPED",
+                errorCode = "OVERLAP_PREVENTED",
+                screenInteractive = false,
+                charging = true,
+                triggerSource = CaptureDiagnostic.TRIGGER_ALARM,
+            ),
+            CaptureDiagnostic(
+                recordId = "duplicate",
+                sessionId = "trial",
+                slotId = "utc-$second",
+                scheduledFor = second,
+                alarmReceivedAt = second + 50L,
+                completedAt = second + 50L,
+                result = "SKIPPED",
+                errorCode = "DUPLICATE_SLOT",
+                screenInteractive = false,
+                charging = true,
+                triggerSource = CaptureDiagnostic.TRIGGER_TIMER,
+            ),
+            success("early", second, -898_000L)
+                .copy(triggerSource = CaptureDiagnostic.TRIGGER_ALARM),
+        )
+
+        val summary = TimingReport.summarize(records, "trial", first, second, 15)
+
+        assertEquals(2, summary.recordedSlots)
+        assertEquals(1, summary.successfulCaptures)
+        assertEquals(1, summary.earlyCaptures)
+        assertEquals(1, summary.missingSlots)
+        assertEquals(1_500L, summary.worstLatenessMs)
+        assertEquals(1, summary.timerCaptures)
+        assertEquals(0, summary.alarmCaptures)
     }
 
     private fun success(id: String, scheduledFor: Long, lateness: Long) = CaptureDiagnostic(

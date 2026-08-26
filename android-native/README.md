@@ -28,6 +28,9 @@ API, or change Cloudflare data.
 - Offers an opt-in precision experiment that holds a partial wake lock while
   station mode is active and uses an in-process UTC timer. The exact alarm stays
   registered as a recovery fallback if Android removes the process.
+- Gives every recovery alarm an immutable per-slot identity and, in precision
+  mode, a five-second grace period behind the timer. Registering the next alarm
+  therefore cannot mutate or compete with the alarm for the current slot.
 
 The APK targets Android 10 (API 29). The manifest includes forward-compatible
 camera foreground-service and exact-alarm declarations, but newer Android
@@ -144,6 +147,10 @@ The status display should say `PRECISION EXPERIMENT`. In the new CSV:
   UTC boundary, while `capture_lateness_ms` includes CameraX work.
 - `device_idle_mode` shows whether Android considered the phone to be in Doze,
   which lets us test the wake lock rather than infer its effect.
+
+The live summary counts a slot as successful only when a JPEG was saved at or
+after that slot's UTC boundary. Skipped attempts and a JPEG incorrectly assigned
+to a future slot remain visible in diagnostics but cannot hide a missing slot.
 
 If the phone becomes noticeably warm, loses charge while plugged in, or must be
 removed from dedicated station use, stop the experiment. Stopping station mode

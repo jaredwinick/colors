@@ -11,16 +11,22 @@ class AlarmReceiver : BroadcastReceiver() {
         val preferences = StationPreferences(context)
         if (!preferences.enabled) return
 
-        val scheduledFor = intent.getLongExtra(
-            StationService.EXTRA_SCHEDULED_FOR,
-            preferences.nextCaptureAt,
-        )
+        val scheduledFor = intent.getLongExtra(StationService.EXTRA_SCHEDULED_FOR, 0L)
+            .takeIf { it > 0 }
+            ?: intent.data?.lastPathSegment?.toLongOrNull()
+            ?: return
         val receivedAt = System.currentTimeMillis()
 
         // Precision mode normally replaces this fallback alarm with the next
         // slot before it can be delivered. Ignore a stale delivery if the
         // in-process timer already claimed and captured this slot.
-        if (preferences.isScheduledSlotClaimed(scheduledFor)) return
+        if (preferences.isScheduledSlotClaimed(scheduledFor)) {
+            if (preferences.nextCaptureAt <= scheduledFor) {
+                runCatching { AlarmScheduler(context).scheduleNext(receivedAt) }
+                    .onFailure { preferences.setLastError("ALARM_RESCHEDULE_FAILED") }
+            }
+            return
+        }
 
         // Protect the cadence before camera work begins. Every later alarm is
         // calculated from a fresh UTC boundary, never from the prior completion.

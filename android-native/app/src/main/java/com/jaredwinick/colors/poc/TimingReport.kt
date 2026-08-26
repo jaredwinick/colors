@@ -7,6 +7,7 @@ data class TimingSummary(
     val expectedSlots: Int,
     val recordedSlots: Int,
     val successfulCaptures: Int,
+    val earlyCaptures: Int,
     val missingSlots: Int,
     val duplicateCaptures: Int,
     val duplicateAlarms: Int,
@@ -28,13 +29,19 @@ object TimingReport {
         val sessionRecords = records.filter { it.sessionId == sessionId && !it.manual }
         val expected = UtcSchedule.expectedBoundaries(firstScheduledAt, throughMillis, intervalMinutes)
         val recordedSlots = sessionRecords.map { it.scheduledFor }.toSet()
-        val duplicates = sessionRecords
-            .filter { it.result == CaptureDiagnostic.RESULT_SUCCESS }
+        val completedCaptures = sessionRecords.filter {
+            it.result == CaptureDiagnostic.RESULT_SUCCESS && it.captureLatenessMs != null
+        }
+        // A JPEG assigned to a future slot is evidence of a trigger bug, not a
+        // successful capture for that slot. Keep it visible as an early capture
+        // while correctly reporting the intended slot as missing.
+        val validCaptures = completedCaptures.filter { it.captureLatenessMs!! >= 0 }
+        val successfulSlots = validCaptures.mapTo(mutableSetOf()) { it.scheduledFor }
+        val duplicates = validCaptures
             .groupingBy { it.scheduledFor }
             .eachCount()
             .values.sumOf { (it - 1).coerceAtLeast(0) }
-        val lateness = sessionRecords
-            .filter { it.result == CaptureDiagnostic.RESULT_SUCCESS }
+        val lateness = validCaptures
             .mapNotNull { it.captureLatenessMs }
             .sorted()
         val p95 = if (lateness.isEmpty()) null else lateness[ceil(lateness.size * 0.95).toInt() - 1]
@@ -44,20 +51,19 @@ object TimingReport {
         return TimingSummary(
             expectedSlots = expected.size,
             recordedSlots = recordedSlots.size,
-            successfulCaptures = lateness.size,
-            missingSlots = expected.count { it !in recordedSlots },
+            successfulCaptures = validCaptures.size,
+            earlyCaptures = completedCaptures.size - validCaptures.size,
+            missingSlots = expected.count { it !in successfulSlots },
             duplicateCaptures = duplicates,
             duplicateAlarms = sessionRecords.count { it.errorCode == "DUPLICATE_SLOT" },
             p95LatenessMs = p95,
             worstLatenessMs = lateness.maxOrNull(),
             within60SecondsPercent = within60,
-            timerCaptures = sessionRecords.count {
-                it.result == CaptureDiagnostic.RESULT_SUCCESS &&
-                    it.triggerSource == CaptureDiagnostic.TRIGGER_TIMER
+            timerCaptures = validCaptures.count {
+                it.triggerSource == CaptureDiagnostic.TRIGGER_TIMER
             },
-            alarmCaptures = sessionRecords.count {
-                it.result == CaptureDiagnostic.RESULT_SUCCESS &&
-                    it.triggerSource == CaptureDiagnostic.TRIGGER_ALARM
+            alarmCaptures = validCaptures.count {
+                it.triggerSource == CaptureDiagnostic.TRIGGER_ALARM
             },
         )
     }
@@ -66,6 +72,7 @@ object TimingReport {
         appendLine("Expected slots: ${summary.expectedSlots}")
         appendLine("Recorded slots: ${summary.recordedSlots}")
         appendLine("Successful captures: ${summary.successfulCaptures}")
+        appendLine("Invalid early captures: ${summary.earlyCaptures}")
         appendLine("Missing slots: ${summary.missingSlots}")
         appendLine("Duplicate captures: ${summary.duplicateCaptures}")
         appendLine("Duplicate alarms skipped: ${summary.duplicateAlarms}")
