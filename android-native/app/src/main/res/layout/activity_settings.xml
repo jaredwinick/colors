@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="20dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/configuration_heading"
+            android:textAppearance="?android:attr/textAppearanceLarge"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="12dp"
+            android:text="@string/configuration_description" />
+
+        <EditText android:id="@+id/deviceId" style="@style/ConfigurationInput" android:hint="Device ID" android:inputType="text" />
+        <CheckBox android:id="@+id/frontCamera" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Use front camera (back camera is default)" />
+        <EditText android:id="@+id/maxImageDimension" style="@style/ConfigurationInput" android:hint="Maximum image dimension (pixels)" android:inputType="number" />
+        <EditText android:id="@+id/jpegQuality" style="@style/ConfigurationInput" android:hint="JPEG quality (1-95)" android:inputType="number" />
+        <EditText android:id="@+id/paletteColors" style="@style/ConfigurationInput" android:hint="Palette colors (3-10)" android:inputType="number" />
+        <EditText android:id="@+id/paletteAnalysisDimension" style="@style/ConfigurationInput" android:hint="Palette analysis dimension (pixels)" android:inputType="number" />
+        <EditText android:id="@+id/maxPendingCaptures" style="@style/ConfigurationInput" android:hint="Maximum pending captures" android:inputType="number" />
+        <EditText android:id="@+id/maxUploadsPerCycle" style="@style/ConfigurationInput" android:hint="Maximum uploads per cycle" android:inputType="number" />
+        <EditText android:id="@+id/requestTimeoutSeconds" style="@style/ConfigurationInput" android:hint="Request timeout (seconds)" android:inputType="number" />
+        <EditText android:id="@+id/initialRetrySeconds" style="@style/ConfigurationInput" android:hint="Initial retry delay (seconds)" android:inputType="number" />
+        <EditText android:id="@+id/maximumRetrySeconds" style="@style/ConfigurationInput" android:hint="Maximum retry delay (seconds)" android:inputType="number" />
+        <EditText android:id="@+id/notifyAfterAttempts" style="@style/ConfigurationInput" android:hint="Notify after failed attempts" android:inputType="number" />
+        <EditText android:id="@+id/retentionDays" style="@style/ConfigurationInput" android:hint="Delivered-file retention (days)" android:inputType="number" />
+        <EditText android:id="@+id/retentionCount" style="@style/ConfigurationInput" android:hint="Delivered-file retention (count)" android:inputType="number" />
+        <EditText android:id="@+id/logMaxBytes" style="@style/ConfigurationInput" android:hint="Maximum log size (bytes)" android:inputType="number" />
+
+        <EditText
+            android:id="@+id/debugEndpointOverride"
+            style="@style/ConfigurationInput"
+            android:hint="Debug endpoint override"
+            android:importantForAutofill="no"
+            android:inputType="textUri" />
+
+        <TextView
+            android:id="@+id/endpointStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:fontFamily="monospace"
+            android:textIsSelectable="true" />
+
+        <Button
+            android:id="@+id/saveConfiguration"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/save_configuration" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:text="@string/credentials_heading"
+            android:textAppearance="?android:attr/textAppearanceLarge"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/tokenStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content" />
+
+        <EditText
+            android:id="@+id/ingestToken"
+            style="@style/ConfigurationInput"
+            android:hint="Bearer token"
+            android:importantForAutofill="noExcludeDescendants"
+            android:inputType="textPassword" />
+
+        <LinearLayout
+            style="?android:attr/buttonBarStyle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/saveToken"
+                style="?android:attr/buttonBarButtonStyle"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/save_token" />
+
+            <Button
+                android:id="@+id/clearToken"
+                style="?android:attr/buttonBarButtonStyle"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:layout_weight="1"
+                android:text="@string/clear_token" />
+        </LinearLayout>
+    </LinearLayout>
+</ScrollView>

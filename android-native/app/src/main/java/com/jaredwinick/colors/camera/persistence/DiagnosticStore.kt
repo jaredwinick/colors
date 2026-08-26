@@ -1,6 +1,7 @@
-package com.jaredwinick.colors.poc
+package com.jaredwinick.colors.camera.persistence
 
 import android.content.Context
+import com.jaredwinick.colors.camera.diagnostics.CaptureDiagnostic
 import org.json.JSONObject
 import java.io.File
 

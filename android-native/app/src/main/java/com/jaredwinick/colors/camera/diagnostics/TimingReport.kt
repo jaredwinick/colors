@@ -1,6 +1,7 @@
-package com.jaredwinick.colors.poc
+package com.jaredwinick.colors.camera.diagnostics
 
 import java.util.Locale
+import com.jaredwinick.colors.camera.schedule.UtcSchedule
 import kotlin.math.ceil
 
 data class TimingSummary(

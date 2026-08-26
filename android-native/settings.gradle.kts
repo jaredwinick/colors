@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "ColorsCameraPoc"
+rootProject.name = "ColorsCamera"
 include(":app")

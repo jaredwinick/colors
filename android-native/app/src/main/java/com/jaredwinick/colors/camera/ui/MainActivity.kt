@@ -1,4 +1,4 @@
-package com.jaredwinick.colors.poc
+package com.jaredwinick.colors.camera.ui
 
 import android.Manifest
 import android.app.AlarmManager
@@ -19,12 +19,22 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
+import com.jaredwinick.colors.camera.R
+import com.jaredwinick.colors.camera.camera.PowerSnapshotReader
+import com.jaredwinick.colors.camera.camera.StationService
+import com.jaredwinick.colors.camera.config.ConfigurationStore
+import com.jaredwinick.colors.camera.diagnostics.TimingReport
+import com.jaredwinick.colors.camera.persistence.DiagnosticStore
+import com.jaredwinick.colors.camera.persistence.StationPreferences
+import com.jaredwinick.colors.camera.schedule.AlarmScheduler
+import com.jaredwinick.colors.camera.schedule.UtcSchedule
 import java.io.File
 import java.util.Locale
 
 class MainActivity : AppCompatActivity() {
     private lateinit var preferences: StationPreferences
     private lateinit var diagnostics: DiagnosticStore
+    private lateinit var configurationStore: ConfigurationStore
     private lateinit var intervalInput: EditText
     private lateinit var precisionModeInput: CheckBox
     private lateinit var statusText: TextView
@@ -38,7 +48,7 @@ class MainActivity : AppCompatActivity() {
         if (granted) {
             permissionAction?.invoke()
         } else {
-            toast("Camera permission is required for the proof of concept")
+            toast("Camera permission is required for the camera station")
         }
         permissionAction = null
         refresh()
@@ -56,12 +66,12 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
         preferences = StationPreferences(this)
         diagnostics = DiagnosticStore(this)
+        configurationStore = ConfigurationStore(this)
         intervalInput = findViewById(R.id.intervalMinutes)
         precisionModeInput = findViewById(R.id.precisionMode)
         statusText = findViewById(R.id.statusText)
         reportText = findViewById(R.id.reportText)
-        intervalInput.setText(String.format(Locale.US, "%d", preferences.intervalMinutes))
-        precisionModeInput.isChecked = preferences.precisionMode
+        loadConfiguredSchedule()
 
         findViewById<Button>(R.id.startStation).setOnClickListener {
             withCameraPermission(::startStation)
@@ -74,10 +84,14 @@ class MainActivity : AppCompatActivity() {
         findViewById<Button>(R.id.batterySettings).setOnClickListener {
             openBatteryOptimizationSettings()
         }
+        findViewById<Button>(R.id.openSettings).setOnClickListener {
+            startActivity(Intent(this, SettingsActivity::class.java))
+        }
     }
 
     override fun onResume() {
         super.onResume()
+        if (!preferences.enabled) loadConfiguredSchedule()
         refreshHandler.post(refreshRunnable)
     }
 
@@ -123,11 +137,17 @@ class MainActivity : AppCompatActivity() {
             }
             if (!power.batteryOptimizationExempt) {
                 openBatteryOptimizationSettings()
-                toast("Turn battery optimization off for Colors Camera POC, then start again")
+                toast("Turn battery optimization off for Colors Camera, then start again")
                 return
             }
         }
 
+        configurationStore.save(
+            configurationStore.load().copy(
+                intervalMinutes = interval,
+                precisionMode = precisionMode,
+            ),
+        )
         preferences.start(interval, precisionMode)
         val intent = Intent(this, StationService::class.java).setAction(StationService.ACTION_START)
         ContextCompat.startForegroundService(this, intent)
@@ -224,6 +244,12 @@ class MainActivity : AppCompatActivity() {
 
     private fun toast(message: String) {
         Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+    }
+
+    private fun loadConfiguredSchedule() {
+        val configuration = configurationStore.load()
+        intervalInput.setText(String.format(Locale.US, "%d", configuration.intervalMinutes))
+        precisionModeInput.isChecked = configuration.precisionMode
     }
 
     companion object {

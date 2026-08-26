@@ -1,4 +1,4 @@
-package com.jaredwinick.colors.poc
+package com.jaredwinick.colors.camera.schedule
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows

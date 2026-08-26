@@ -1,4 +1,4 @@
-package com.jaredwinick.colors.poc
+package com.jaredwinick.colors.camera.schedule
 
 object AlarmTiming {
     const val PRECISION_FALLBACK_GRACE_MS = 5_000L

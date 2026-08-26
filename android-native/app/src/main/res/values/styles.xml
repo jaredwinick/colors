@@ -1,9 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.ColorsCameraPoc" parent="Theme.AppCompat.Light.DarkActionBar">
+    <style name="Theme.ColorsCamera" parent="Theme.AppCompat.Light.DarkActionBar">
         <item name="colorPrimary">@color/sky_blue</item>
         <item name="colorPrimaryDark">@color/sky_blue_dark</item>
         <item name="colorAccent">@color/sky_blue</item>
         <item name="android:fontFamily">sans</item>
+    </style>
+
+    <style name="ConfigurationInput" parent="Widget.AppCompat.EditText">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_marginBottom">4dp</item>
+        <item name="android:importantForAutofill">no</item>
     </style>
 </resources>
