@@ -1,5 +1,10 @@
 # Android sky camera
 
+> The working Termux client remains the production capture path. A separate
+> native Android timing proof of concept for Issue #27 lives in
+> [`../android-native`](../android-native/README.md); it does not mask, extract
+> palettes, or upload.
+
 The lightweight capture client uses Termux rather than a custom Android app.
 It takes a photo, extracts six weighted colors on the phone, durably queues the
 JPEG and metadata, and uploads with safe retries. Palette processing on-device

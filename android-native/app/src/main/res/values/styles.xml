@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.ColorsCameraPoc" parent="Theme.AppCompat.Light.DarkActionBar">
+        <item name="colorPrimary">@color/sky_blue</item>
+        <item name="colorPrimaryDark">@color/sky_blue_dark</item>
+        <item name="colorAccent">@color/sky_blue</item>
+        <item name="android:fontFamily">sans</item>
+    </style>
+</resources>

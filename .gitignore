@@ -18,6 +18,10 @@
 __pycache__/
 *.py[cod]
 /android/calibration/local/
+/android-native/.gradle/
+/android-native/local.properties
+/android-native/app/build/
+/android-native/build/
 
 # next.js
 /.next/
