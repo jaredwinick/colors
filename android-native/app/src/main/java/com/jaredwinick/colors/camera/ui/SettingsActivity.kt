@@ -64,7 +64,9 @@ class SettingsActivity : AppCompatActivity() {
         text(R.id.logMaxBytes, configuration.logMaxBytes)
 
         val endpointInput = findViewById<EditText>(R.id.debugEndpointOverride)
-        endpointInput.visibility = if (BuildConfig.ALLOW_ENDPOINT_OVERRIDE) View.VISIBLE else View.GONE
+        val endpointVisibility = if (BuildConfig.ALLOW_ENDPOINT_OVERRIDE) View.VISIBLE else View.GONE
+        endpointInput.visibility = endpointVisibility
+        findViewById<TextView>(R.id.debugEndpointOverrideLabel).visibility = endpointVisibility
         endpointInput.setText(configuration.debugEndpointOverride.orEmpty())
         refreshEndpointStatus(configuration)
     }
