@@ -115,6 +115,13 @@ class DiagnosticStore(context: Context) {
         putNullable("height", height)
         putNullable("processing_duration_ms", processingDurationMs)
         putNullable("camera_settings", cameraSettings)
+        putNullable("palette", palette)
+        putNullable("palette_size", paletteSize)
+        putNullable("palette_analysis_width", paletteAnalysisWidth)
+        putNullable("palette_analysis_height", paletteAnalysisHeight)
+        putNullable("palette_included_pixels", paletteIncludedPixels)
+        putNullable("palette_duration_ms", paletteDurationMs)
+        putNullable("palette_peak_pss_kib", palettePeakPssKib)
         put("manual", manual)
     }
 
@@ -152,6 +159,13 @@ class DiagnosticStore(context: Context) {
         height = json.nullableInt("height"),
         processingDurationMs = json.nullableLong("processing_duration_ms"),
         cameraSettings = json.nullableString("camera_settings"),
+        palette = json.nullableString("palette"),
+        paletteSize = json.nullableInt("palette_size"),
+        paletteAnalysisWidth = json.nullableInt("palette_analysis_width"),
+        paletteAnalysisHeight = json.nullableInt("palette_analysis_height"),
+        paletteIncludedPixels = json.nullableInt("palette_included_pixels"),
+        paletteDurationMs = json.nullableLong("palette_duration_ms"),
+        palettePeakPssKib = json.nullableLong("palette_peak_pss_kib"),
         manual = json.optBoolean("manual"),
     )
 

@@ -3,6 +3,8 @@ package com.jaredwinick.colors.camera.persistence
 import android.content.Context
 import android.os.Environment
 import com.jaredwinick.colors.camera.camera.AppliedCameraSettings
+import com.jaredwinick.colors.camera.palette.PaletteStatistics
+import com.jaredwinick.colors.camera.palette.WeightedPalette
 import com.jaredwinick.colors.camera.processing.CaptureArtifactPolicy
 import com.jaredwinick.colors.camera.processing.ImageDimensions
 import com.jaredwinick.colors.camera.processing.IncompleteCaptureCleaner
@@ -26,10 +28,13 @@ data class ProductionCaptureMetadata(
     val sourceExifOrientation: Int,
     val cameraSettings: AppliedCameraSettings,
     val processingDurationMs: Long,
+    val palette: WeightedPalette? = null,
+    val paletteStatistics: PaletteStatistics? = null,
+    val paletteErrorCode: String? = null,
     val imageFileName: String = "$captureId.jpg",
     val mimeType: String = "image/jpeg",
     val completeUnmaskedView: Boolean = true,
-    val schemaVersion: Int = 1,
+    val schemaVersion: Int = 2,
 ) {
     fun requireValid(): ProductionCaptureMetadata {
         CaptureArtifactPolicy.requireCaptureId(captureId)
@@ -41,7 +46,26 @@ data class ProductionCaptureMetadata(
         require(maximumDimension > 0) { "Maximum dimension must be positive" }
         require(processingDurationMs >= 0) { "Processing duration must not be negative" }
         require(completeUnmaskedView) { "Production image must remain complete and unmasked" }
+        require((palette != null) xor (paletteErrorCode != null)) {
+            "Capture metadata must contain either a valid palette or a palette error"
+        }
+        if (palette != null) {
+            palette.requireValid()
+            requireNotNull(paletteStatistics) { "Successful palette metadata requires statistics" }
+            require(paletteStatistics.paletteColors == palette.colors.size) {
+                "Palette statistics must match the stored palette"
+            }
+        } else {
+            require(paletteStatistics == null) { "Failed palette metadata cannot contain statistics" }
+            require(PALETTE_ERROR_PATTERN.matches(requireNotNull(paletteErrorCode))) {
+                "Palette error code must be safe for diagnostics"
+            }
+        }
         return this
+    }
+
+    companion object {
+        private val PALETTE_ERROR_PATTERN = Regex("[A-Z0-9_]{1,100}")
     }
 }
 
@@ -147,5 +171,21 @@ class ProductionCaptureRepository(context: Context) {
         put("exposure_compensation_index", cameraSettings.exposureCompensationIndex ?: JSONObject.NULL)
         put("exposure_compensation_ev", cameraSettings.exposureCompensationEv ?: JSONObject.NULL)
         put("camera_fallbacks", JSONArray(cameraSettings.fallbacks))
+        put("palette_algorithm", "weighted_median_cut_v1")
+        put("palette", palette?.let { JSONArray(it.toJson()) } ?: JSONObject.NULL)
+        put("palette_error_code", paletteErrorCode ?: JSONObject.NULL)
+        put("palette_statistics", paletteStatistics?.let { statistics ->
+            JSONObject().apply {
+                put("source_width", statistics.sourceSize.width)
+                put("source_height", statistics.sourceSize.height)
+                put("analysis_width", statistics.analysisSize.width)
+                put("analysis_height", statistics.analysisSize.height)
+                put("included_pixels", statistics.includedPixels)
+                put("requested_colors", statistics.requestedColors)
+                put("palette_colors", statistics.paletteColors)
+                put("elapsed_ms", statistics.elapsedMs)
+                put("peak_pss_kib", statistics.peakPssKib)
+            }
+        } ?: JSONObject.NULL)
     }
 }

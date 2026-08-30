@@ -20,7 +20,7 @@ class AppConfigurationTest {
         assertEquals(-3, defaults.exposureCompensationTenthsEv)
         assertEquals(1_920, defaults.maxImageDimension)
         assertEquals(85, defaults.jpegQuality)
-        assertEquals(6, defaults.paletteColors)
+        assertEquals(8, defaults.paletteColors)
         assertEquals(180, defaults.paletteAnalysisDimension)
         assertEquals(192, defaults.maxPendingCaptures)
         assertEquals(4, defaults.maxUploadsPerCycle)
@@ -88,5 +88,18 @@ class AppConfigurationTest {
         assertEquals(FocusMode.INFINITY, migrated.focusMode)
         assertEquals(WhiteBalanceMode.DAYLIGHT, migrated.whiteBalanceMode)
         assertEquals(-3, migrated.exposureCompensationTenthsEv)
+    }
+
+    @Test
+    fun `schema three legacy default advances to eight colors but custom count is preserved`() {
+        fun schemaThree(colors: Int) = ConfigurationCodec.encode(AppConfiguration.defaults())
+            .toMutableMap()
+            .apply {
+                this[ConfigurationCodec.Keys.SCHEMA_VERSION] = "3"
+                this[ConfigurationCodec.Keys.PALETTE_COLORS] = colors.toString()
+            }
+
+        assertEquals(8, ConfigurationCodec.decode(schemaThree(6)).paletteColors)
+        assertEquals(5, ConfigurationCodec.decode(schemaThree(5)).paletteColors)
     }
 }
