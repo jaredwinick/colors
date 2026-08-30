@@ -1,6 +1,7 @@
-package com.jaredwinick.colors.poc
+package com.jaredwinick.colors.camera.persistence
 
 import android.content.Context
+import com.jaredwinick.colors.camera.schedule.UtcSchedule
 import java.util.UUID
 
 class StationPreferences(context: Context) {

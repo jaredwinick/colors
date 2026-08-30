@@ -1,4 +1,4 @@
-package com.jaredwinick.colors.poc
+package com.jaredwinick.colors.camera.schedule
 
 import android.Manifest
 import android.content.BroadcastReceiver
@@ -7,6 +7,8 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.UserManager
 import androidx.core.content.ContextCompat
+import com.jaredwinick.colors.camera.camera.StationService
+import com.jaredwinick.colors.camera.persistence.StationPreferences
 
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {

@@ -1,4 +1,4 @@
-package com.jaredwinick.colors.poc
+package com.jaredwinick.colors.camera.diagnostics
 
 data class CaptureDiagnostic(
     val recordId: String,

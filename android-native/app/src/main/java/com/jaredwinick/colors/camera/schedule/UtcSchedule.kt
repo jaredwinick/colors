@@ -1,4 +1,4 @@
-package com.jaredwinick.colors.poc
+package com.jaredwinick.colors.camera.schedule
 
 import java.time.Instant
 import java.time.ZoneOffset

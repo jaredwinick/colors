@@ -1,9 +1,11 @@
-package com.jaredwinick.colors.poc
+package com.jaredwinick.colors.camera.schedule
 
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import androidx.core.content.ContextCompat
+import com.jaredwinick.colors.camera.camera.StationService
+import com.jaredwinick.colors.camera.persistence.StationPreferences
 
 class AlarmReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
@@ -41,6 +43,6 @@ class AlarmReceiver : BroadcastReceiver() {
     }
 
     companion object {
-        const val ACTION_CAPTURE_ALARM = "com.jaredwinick.colors.poc.CAPTURE_ALARM"
+        const val ACTION_CAPTURE_ALARM = "com.jaredwinick.colors.camera.CAPTURE_ALARM"
     }
 }

@@ -16,12 +16,16 @@
     <application
         android:allowBackup="false"
         android:icon="@drawable/ic_colors_camera"
-        android:label="Colors Camera POC"
+        android:label="@string/app_name"
         android:supportsRtl="true"
-        android:theme="@style/Theme.ColorsCameraPoc">
+        android:theme="@style/Theme.ColorsCamera">
 
         <activity
-            android:name=".MainActivity"
+            android:name=".ui.SettingsActivity"
+            android:exported="false" />
+
+        <activity
+            android:name=".ui.MainActivity"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -30,16 +34,16 @@
         </activity>
 
         <service
-            android:name=".StationService"
+            android:name=".camera.StationService"
             android:exported="false"
             android:foregroundServiceType="camera" />
 
         <receiver
-            android:name=".AlarmReceiver"
+            android:name=".schedule.AlarmReceiver"
             android:exported="false" />
 
         <receiver
-            android:name=".BootReceiver"
+            android:name=".schedule.BootReceiver"
             android:directBootAware="true"
             android:enabled="true"
             android:exported="true">

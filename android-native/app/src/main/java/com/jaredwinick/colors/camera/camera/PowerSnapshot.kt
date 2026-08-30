@@ -1,4 +1,4 @@
-package com.jaredwinick.colors.poc
+package com.jaredwinick.colors.camera.camera
 
 import android.content.Context
 import android.content.Intent

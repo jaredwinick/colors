@@ -1,4 +1,4 @@
-package com.jaredwinick.colors.poc
+package com.jaredwinick.colors.camera.camera
 
 import android.Manifest
 import android.annotation.SuppressLint
@@ -24,6 +24,15 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleService
+import com.jaredwinick.colors.camera.R
+import com.jaredwinick.colors.camera.config.CameraLens
+import com.jaredwinick.colors.camera.config.ConfigurationStore
+import com.jaredwinick.colors.camera.diagnostics.CaptureDiagnostic
+import com.jaredwinick.colors.camera.persistence.DiagnosticStore
+import com.jaredwinick.colors.camera.persistence.StationPreferences
+import com.jaredwinick.colors.camera.schedule.AlarmScheduler
+import com.jaredwinick.colors.camera.schedule.UtcSchedule
+import com.jaredwinick.colors.camera.ui.MainActivity
 import java.io.File
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
@@ -31,6 +40,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 class StationService : LifecycleService() {
     private lateinit var preferences: StationPreferences
     private lateinit var diagnostics: DiagnosticStore
+    private lateinit var configurationStore: ConfigurationStore
     private val captureInProgress = AtomicBoolean(false)
     private val mainHandler = Handler(Looper.getMainLooper())
     private var stationWakeLock: PowerManager.WakeLock? = null
@@ -40,6 +50,7 @@ class StationService : LifecycleService() {
         super.onCreate()
         preferences = StationPreferences(this)
         diagnostics = DiagnosticStore(this)
+        configurationStore = ConfigurationStore(this)
         diagnostics.recoverInterrupted()
         createNotificationChannel()
         promoteToForeground()
@@ -191,11 +202,16 @@ class StationService : LifecycleService() {
             try {
                 cameraProvider = providerFuture.get()
                 cameraProvider?.unbindAll()
+                val configuration = configurationStore.load()
                 val imageCapture = ImageCapture.Builder()
                     .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
-                    .setJpegQuality(JPEG_QUALITY)
+                    .setJpegQuality(configuration.jpegQuality)
                     .build()
-                cameraProvider?.bindToLifecycle(this, CameraSelector.DEFAULT_BACK_CAMERA, imageCapture)
+                val selector = when (configuration.cameraLens) {
+                    CameraLens.BACK -> CameraSelector.DEFAULT_BACK_CAMERA
+                    CameraLens.FRONT -> CameraSelector.DEFAULT_FRONT_CAMERA
+                }
+                cameraProvider?.bindToLifecycle(this, selector, imageCapture)
 
                 val startedAt = System.currentTimeMillis()
                 val outputFile = captureFile(startedAt)
@@ -271,7 +287,7 @@ class StationService : LifecycleService() {
 
     private fun captureFile(timestamp: Long): File {
         val root = getExternalFilesDir(Environment.DIRECTORY_PICTURES) ?: filesDir
-        val directory = File(root, "proof-of-concept").apply { mkdirs() }
+        val directory = File(root, "captures").apply { mkdirs() }
         return File(directory, "colors-${timestamp}-${UUID.randomUUID()}.jpg")
     }
 
@@ -423,7 +439,7 @@ class StationService : LifecycleService() {
             "Camera station",
             NotificationManager.IMPORTANCE_LOW,
         ).apply {
-            description = "Status for UTC-aligned proof-of-concept sky captures"
+            description = "Status for UTC-aligned sky captures"
         }
         getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
     }
@@ -435,17 +451,16 @@ class StationService : LifecycleService() {
     }
 
     companion object {
-        const val ACTION_START = "com.jaredwinick.colors.poc.START"
-        const val ACTION_STOP = "com.jaredwinick.colors.poc.STOP"
-        const val ACTION_RESTORE = "com.jaredwinick.colors.poc.RESTORE"
-        const val ACTION_CAPTURE = "com.jaredwinick.colors.poc.CAPTURE"
-        const val ACTION_CAPTURE_TEST = "com.jaredwinick.colors.poc.CAPTURE_TEST"
+        const val ACTION_START = "com.jaredwinick.colors.camera.START"
+        const val ACTION_STOP = "com.jaredwinick.colors.camera.STOP"
+        const val ACTION_RESTORE = "com.jaredwinick.colors.camera.RESTORE"
+        const val ACTION_CAPTURE = "com.jaredwinick.colors.camera.CAPTURE"
+        const val ACTION_CAPTURE_TEST = "com.jaredwinick.colors.camera.CAPTURE_TEST"
         const val EXTRA_SCHEDULED_FOR = "scheduled_for"
         const val EXTRA_TRIGGER_RECEIVED_AT = "trigger_received_at"
 
-        private const val CHANNEL_ID = "camera_station"
+        private const val CHANNEL_ID = "camera_station_v1"
         private const val NOTIFICATION_ID = 2701
-        private const val JPEG_QUALITY = 85
         private const val CAPTURE_TIMEOUT_MS = 90_000L
         private const val WAKE_LOCK_TIMEOUT_MS = 120_000L
     }

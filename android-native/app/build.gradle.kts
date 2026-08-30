@@ -4,27 +4,41 @@ plugins {
 }
 
 android {
-    namespace = "com.jaredwinick.colors.poc"
+    namespace = "com.jaredwinick.colors.camera"
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.jaredwinick.colors.poc"
+        applicationId = "com.jaredwinick.colors.camera"
         minSdk = 29
         targetSdk = 29
-        versionCode = 2
-        versionName = "0.1.1"
+        versionCode = 3
+        versionName = "0.2.0"
+
+        buildConfigField(
+            "String",
+            "INGEST_ENDPOINT",
+            "\"https://colors-sky-archive.jaredwinick.workers.dev/api/ingest\"",
+        )
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     buildTypes {
+        debug {
+            buildConfigField("boolean", "ALLOW_ENDPOINT_OVERRIDE", "true")
+        }
         release {
             isMinifyEnabled = false
+            buildConfigField("boolean", "ALLOW_ENDPOINT_OVERRIDE", "false")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
         }
+    }
+
+    buildFeatures {
+        buildConfig = true
     }
 
     compileOptions {
@@ -41,8 +55,8 @@ android {
     }
 
     lint {
-        // This is a sideloaded experiment whose purpose is to measure Android
-        // 10 behavior. Google Play publication is explicitly out of scope.
+        // This is a dedicated, sideloaded Android 10 station. Google Play
+        // publication is explicitly out of scope.
         disable += "ExpiredTargetSdkVersion"
     }
 }

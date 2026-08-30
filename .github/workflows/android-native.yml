@@ -1,4 +1,4 @@
-name: Android native proof of concept
+name: Android native application
 
 on:
   pull_request:
@@ -38,6 +38,6 @@ jobs:
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: colors-camera-poc-debug
+          name: colors-camera-debug
           path: android-native/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
