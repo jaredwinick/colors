@@ -10,7 +10,7 @@ import androidx.camera.core.CameraInfo
 import androidx.camera.core.ImageCapture
 import com.jaredwinick.colors.camera.config.AppConfiguration
 
-@ExperimentalCamera2Interop
+@OptIn(ExperimentalCamera2Interop::class)
 object CameraControlConfigurator {
     fun configure(
         builder: ImageCapture.Builder,

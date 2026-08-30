@@ -45,7 +45,7 @@ import java.util.UUID
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 
-@ExperimentalCamera2Interop
+@OptIn(ExperimentalCamera2Interop::class)
 class StationService : LifecycleService() {
     private lateinit var preferences: StationPreferences
     private lateinit var diagnostics: DiagnosticStore
