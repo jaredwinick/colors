@@ -82,6 +82,8 @@ object CaptureArtifactPolicy {
         require(bytes in 1..MAX_JPEG_BYTES) { "JPEG exceeds the 12 MB Worker limit" }
         return bytes
     }
+
+    fun isDisplayReadyExifOrientation(value: Int): Boolean = value == 0 || value == 1
 }
 
 object IncompleteCaptureCleaner {

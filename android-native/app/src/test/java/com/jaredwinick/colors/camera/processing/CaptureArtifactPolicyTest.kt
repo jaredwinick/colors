@@ -51,6 +51,13 @@ class CaptureArtifactPolicyTest {
     }
 
     @Test
+    fun `normal and absent EXIF orientation are display ready`() {
+        assertTrue(CaptureArtifactPolicy.isDisplayReadyExifOrientation(0))
+        assertTrue(CaptureArtifactPolicy.isDisplayReadyExifOrientation(1))
+        assertFalse(CaptureArtifactPolicy.isDisplayReadyExifOrientation(6))
+    }
+
+    @Test
     fun `incomplete work and new orphan images are removed without deleting legacy captures`() {
         val root = temporaryFolder.newFolder("captures")
         val work = File(root, "work").apply { mkdirs() }

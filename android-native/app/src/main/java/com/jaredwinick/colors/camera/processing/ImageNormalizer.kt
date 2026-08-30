@@ -8,6 +8,7 @@ import android.graphics.Matrix
 import androidx.exifinterface.media.ExifInterface
 import java.io.File
 import java.io.FileOutputStream
+import java.io.RandomAccessFile
 
 data class ImageNormalizationResult(
     val sourceDimensions: ImageDimensions,
@@ -103,6 +104,8 @@ class ImageNormalizer {
                 decoded.recycle()
             }
 
+            writeNormalExifOrientation(destination)
+
             if (destination.length() > CaptureArtifactPolicy.MAX_JPEG_BYTES) {
                 throw CaptureProcessingException(
                     "FINAL_JPEG_TOO_LARGE",
@@ -122,9 +125,9 @@ class ImageNormalizer {
             }
             val finalOrientation = ExifInterface(destination).getAttributeInt(
                 ExifInterface.TAG_ORIENTATION,
-                ExifInterface.ORIENTATION_NORMAL,
+                ExifInterface.ORIENTATION_UNDEFINED,
             )
-            if (finalOrientation != ExifInterface.ORIENTATION_NORMAL) {
+            if (!CaptureArtifactPolicy.isDisplayReadyExifOrientation(finalOrientation)) {
                 throw CaptureProcessingException("FINAL_ORIENTATION_INVALID", "EXIF orientation was not normalized")
             }
             return ImageNormalizationResult(
@@ -153,5 +156,16 @@ class ImageNormalizer {
 
     private fun hasJpegSignature(file: File): Boolean = file.inputStream().use { input ->
         input.read() == 0xff && input.read() == 0xd8 && input.read() == 0xff
+    }
+
+    private fun writeNormalExifOrientation(file: File) {
+        ExifInterface(file).apply {
+            setAttribute(
+                ExifInterface.TAG_ORIENTATION,
+                ExifInterface.ORIENTATION_NORMAL.toString(),
+            )
+            saveAttributes()
+        }
+        RandomAccessFile(file, "rw").use { output -> output.fd.sync() }
     }
 }

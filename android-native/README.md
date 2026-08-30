@@ -15,7 +15,7 @@ path until the native pipeline passes its production soak test.
 
 - Application name: **Colors Camera**
 - Application ID and namespace: `com.jaredwinick.colors.camera`
-- Version: `0.3.0` (`versionCode` 4)
+- Version: `0.3.1` (`versionCode` 5)
 - Capture files: app-specific external `Pictures/captures`
 - Diagnostics and configuration: app-private storage
 - Ingest token: encrypted with a non-exportable Android Keystore AES-GCM key
@@ -244,6 +244,10 @@ The ingest token and configuration secrets are never included.
 **Share latest production image** opens Android's share sheet for the newest
 fully committed JPEG. This makes daylight, sunset, night, overcast, orientation,
 and file-size checks possible without moving the mounted phone.
+
+Normalized JPEGs are written with upright pixels and an explicit EXIF
+orientation of `normal`. Android devices that return the equivalent
+`undefined` value for an orientation-free JPEG are also accepted.
 
 Common error codes include `CAMERA_PERMISSION_MISSING`, `CAMERA_BIND_FAILED`,
 `CAMERA_CAPTURE_*`, `CAPTURE_TIMEOUT`, `OVERLAP_PREVENTED`, `DUPLICATE_SLOT`,
