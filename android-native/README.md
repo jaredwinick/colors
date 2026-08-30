@@ -5,17 +5,17 @@ CameraX scheduling proof of concept from Issue #27 and is being productionized
 through Issues #30-#38. The app targets the dedicated Samsung Galaxy S9+ running
 Android 10 (API 29).
 
-The native app currently provides the production foundation and the proven
-capture scheduler. Masking, palette extraction, durable upload, and full
-operations screens are intentionally delivered by the subsequent roadmap
-issues. The Termux client in `android/` remains the rollback path until the
-native pipeline passes its production soak test.
+The native app currently provides the production foundation, proven capture
+scheduler, and production JPEG normalization stage. Masking, palette
+extraction, durable upload, and full operations screens are delivered by the
+subsequent roadmap issues. The Termux client in `android/` remains the rollback
+path until the native pipeline passes its production soak test.
 
 ## Production identity and architecture
 
 - Application name: **Colors Camera**
 - Application ID and namespace: `com.jaredwinick.colors.camera`
-- Version: `0.2.0` (`versionCode` 3)
+- Version: `0.3.1` (`versionCode` 5)
 - Capture files: app-specific external `Pictures/captures`
 - Diagnostics and configuration: app-private storage
 - Ingest token: encrypted with a non-exportable Android Keystore AES-GCM key
@@ -43,7 +43,7 @@ Code is split by responsibility:
 | `persistence` | App-private runtime and diagnostic stores |
 | `schedule` | UTC cadence, exact-alarm fallback, reboot restore |
 | `ui` | Station controls and production settings |
-| `processing` | Reserved for mask/palette work in Issues #31-#32 |
+| `processing` | JPEG normalization and later mask/palette work |
 | `network` | Reserved for durable Worker upload work in Issues #33-#34 |
 
 The scheduler preserves the behavior proven in Issue #27: a foreground
@@ -67,6 +67,10 @@ Current defaults match the working Termux pipeline:
 | Precision mode | enabled |
 | Device ID | `android-sky-camera` |
 | Camera lens | back |
+| Focus | infinity; continuous autofocus fallback |
+| White balance | fixed daylight; automatic fallback |
+| Exposure | automatic, −0.3 EV compensation |
+| Flash / night extension | off / not enabled |
 | Maximum image dimension | 1920 px |
 | JPEG quality | 85 |
 | Palette colors | 6 |
@@ -79,10 +83,44 @@ Current defaults match the working Termux pipeline:
 | Delivered-file retention | 7 days / 672 captures |
 | Log size | 1 MiB |
 
-Configuration schema version 2 is stored in app-private Android preferences.
-Missing schema-1 fields receive current defaults during migration; an unknown
-future schema is never interpreted as current configuration. All values are
-validated before saving.
+Configuration schema version 3 is stored in app-private Android preferences.
+Schema-1 and schema-2 settings receive current defaults for new fields during
+migration; an unknown future schema is never interpreted as current
+configuration. All values are validated before saving.
+
+## Production camera and JPEG behavior
+
+The defaults are tuned for a permanently mounted sky camera:
+
+- CameraX uses the rear lens, explicitly disables flash, and does not enable a
+  night, HDR, or other CameraX extension. Normal darkness at night is retained.
+- Infinity focus is requested at `0.0` diopters only when Camera2 reports a
+  variable-focus manual sensor. A fixed-focus camera is accepted as infinity;
+  otherwise the app falls back to continuous picture autofocus.
+- Fixed daylight white balance is preferred so sunrise, sunset, and twilight
+  color shifts are not continually neutralized. Automatic white balance is the
+  supported fallback and remains configurable.
+- Automatic exposure remains active across daylight and twilight. The default
+  −0.3 EV compensation mildly protects bright sky highlights without forcing a
+  dark manual exposure. The value is translated to the nearest supported camera
+  step and clamped to the device range.
+- Every applied mode and fallback is written to safe capture metadata and the
+  timing CSV. Camera controls that the selected lens does not advertise are
+  never forced.
+
+Each camera callback receives one UUIDv4 and an actual UTC success timestamp.
+The complete source JPEG is orientation-corrected, converted through an RGB
+bitmap, reduced to a longest edge of at most 1920 pixels, and encoded at quality
+85. The app then verifies that Android can decode the result, verifies normal
+EXIF orientation and JPEG markers, and rejects files over the Worker's 12 MB
+limit.
+
+The normalized JPEG remains a complete, unmasked view. It is staged under
+`Pictures/capture-work`, then committed to `Pictures/captures`; its versioned
+metadata is committed last under `Pictures/capture-metadata`. A metadata file is
+therefore the completion marker and can never point to a partial JPEG. Startup
+removes temporary work and new-format orphan images while leaving legacy POC
+captures alone.
 
 The release endpoint is compiled into the app:
 
@@ -202,6 +240,14 @@ Restore the known working Termux job if native development pauses:
 the intended UTC slot, trigger source, service receipt, capture start and
 completion, timing deltas, screen/power state, safe error code, and image path.
 The ingest token and configuration secrets are never included.
+
+**Share latest production image** opens Android's share sheet for the newest
+fully committed JPEG. This makes daylight, sunset, night, overcast, orientation,
+and file-size checks possible without moving the mounted phone.
+
+Normalized JPEGs are written with upright pixels and an explicit EXIF
+orientation of `normal`. Android devices that return the equivalent
+`undefined` value for an orientation-free JPEG are also accepted.
 
 Common error codes include `CAMERA_PERMISSION_MISSING`, `CAMERA_BIND_FAILED`,
 `CAMERA_CAPTURE_*`, `CAPTURE_TIMEOUT`, `OVERLAP_PREVENTED`, `DUPLICATE_SLOT`,

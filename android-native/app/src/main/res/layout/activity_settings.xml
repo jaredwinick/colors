@@ -28,6 +28,27 @@
 
         <CheckBox android:id="@+id/frontCamera" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/front_camera_label" />
 
+        <CheckBox
+            android:id="@+id/continuousAutoFocus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/continuous_auto_focus_label" />
+
+        <CheckBox
+            android:id="@+id/automaticWhiteBalance"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/automatic_white_balance_label" />
+
+        <TextView
+            style="@style/ConfigurationLabel"
+            android:labelFor="@id/exposureCompensationTenthsEv"
+            android:text="@string/exposure_compensation_label" />
+        <EditText
+            android:id="@+id/exposureCompensationTenthsEv"
+            style="@style/ConfigurationInput"
+            android:inputType="numberSigned" />
+
         <TextView style="@style/ConfigurationLabel" android:labelFor="@id/maxImageDimension" android:text="@string/max_image_dimension_label" />
         <EditText android:id="@+id/maxImageDimension" style="@style/ConfigurationInput" android:inputType="number" />
 

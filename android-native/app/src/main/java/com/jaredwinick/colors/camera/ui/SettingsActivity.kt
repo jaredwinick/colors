@@ -14,7 +14,9 @@ import com.jaredwinick.colors.camera.config.AppConfiguration
 import com.jaredwinick.colors.camera.config.CameraLens
 import com.jaredwinick.colors.camera.config.ConfigurationStore
 import com.jaredwinick.colors.camera.config.EndpointPolicy
+import com.jaredwinick.colors.camera.config.FocusMode
 import com.jaredwinick.colors.camera.config.SecureTokenStore
+import com.jaredwinick.colors.camera.config.WhiteBalanceMode
 
 class SettingsActivity : AppCompatActivity() {
     private lateinit var configurationStore: ConfigurationStore
@@ -49,6 +51,11 @@ class SettingsActivity : AppCompatActivity() {
         text(R.id.deviceId, configuration.deviceId)
         findViewById<CheckBox>(R.id.frontCamera).isChecked =
             configuration.cameraLens == CameraLens.FRONT
+        findViewById<CheckBox>(R.id.continuousAutoFocus).isChecked =
+            configuration.focusMode == FocusMode.CONTINUOUS_AUTO
+        findViewById<CheckBox>(R.id.automaticWhiteBalance).isChecked =
+            configuration.whiteBalanceMode == WhiteBalanceMode.AUTO
+        text(R.id.exposureCompensationTenthsEv, configuration.exposureCompensationTenthsEv)
         text(R.id.maxImageDimension, configuration.maxImageDimension)
         text(R.id.jpegQuality, configuration.jpegQuality)
         text(R.id.paletteColors, configuration.paletteColors)
@@ -86,6 +93,19 @@ class SettingsActivity : AppCompatActivity() {
                 } else {
                     CameraLens.BACK
                 },
+                focusMode = if (findViewById<CheckBox>(R.id.continuousAutoFocus).isChecked) {
+                    FocusMode.CONTINUOUS_AUTO
+                } else {
+                    FocusMode.INFINITY
+                },
+                whiteBalanceMode = if (
+                    findViewById<CheckBox>(R.id.automaticWhiteBalance).isChecked
+                ) {
+                    WhiteBalanceMode.AUTO
+                } else {
+                    WhiteBalanceMode.DAYLIGHT
+                },
+                exposureCompensationTenthsEv = number(R.id.exposureCompensationTenthsEv),
                 maxImageDimension = number(R.id.maxImageDimension),
                 jpegQuality = number(R.id.jpegQuality),
                 paletteColors = number(R.id.paletteColors),

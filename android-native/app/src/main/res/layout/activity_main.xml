@@ -90,6 +90,12 @@
             android:layout_height="wrap_content"
             android:text="@string/export_report" />
 
+        <Button
+            android:id="@+id/shareLatestCapture"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/share_latest_capture" />
+
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"

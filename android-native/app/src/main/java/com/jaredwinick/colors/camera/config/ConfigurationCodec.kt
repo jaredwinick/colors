@@ -9,6 +9,12 @@ object ConfigurationCodec {
             put(Keys.PRECISION_MODE, configuration.precisionMode.toString())
             put(Keys.DEVICE_ID, configuration.deviceId)
             put(Keys.CAMERA_LENS, configuration.cameraLens.name)
+            put(Keys.FOCUS_MODE, configuration.focusMode.name)
+            put(Keys.WHITE_BALANCE_MODE, configuration.whiteBalanceMode.name)
+            put(
+                Keys.EXPOSURE_COMPENSATION_TENTHS_EV,
+                configuration.exposureCompensationTenthsEv.toString(),
+            )
             put(Keys.MAX_IMAGE_DIMENSION, configuration.maxImageDimension.toString())
             put(Keys.JPEG_QUALITY, configuration.jpegQuality.toString())
             put(Keys.PALETTE_COLORS, configuration.paletteColors.toString())
@@ -37,6 +43,16 @@ object ConfigurationCodec {
             cameraLens = values[Keys.CAMERA_LENS]
                 ?.let { runCatching { CameraLens.valueOf(it) }.getOrNull() }
                 ?: defaults.cameraLens,
+            focusMode = values[Keys.FOCUS_MODE]
+                ?.let { runCatching { FocusMode.valueOf(it) }.getOrNull() }
+                ?: defaults.focusMode,
+            whiteBalanceMode = values[Keys.WHITE_BALANCE_MODE]
+                ?.let { runCatching { WhiteBalanceMode.valueOf(it) }.getOrNull() }
+                ?: defaults.whiteBalanceMode,
+            exposureCompensationTenthsEv = values.int(
+                Keys.EXPOSURE_COMPENSATION_TENTHS_EV,
+                defaults.exposureCompensationTenthsEv,
+            ),
             maxImageDimension = values.int(Keys.MAX_IMAGE_DIMENSION, defaults.maxImageDimension),
             jpegQuality = values.int(Keys.JPEG_QUALITY, defaults.jpegQuality),
             paletteColors = values.int(Keys.PALETTE_COLORS, defaults.paletteColors),
@@ -69,6 +85,9 @@ object ConfigurationCodec {
         const val PRECISION_MODE = "precision_mode"
         const val DEVICE_ID = "device_id"
         const val CAMERA_LENS = "camera_lens"
+        const val FOCUS_MODE = "focus_mode"
+        const val WHITE_BALANCE_MODE = "white_balance_mode"
+        const val EXPOSURE_COMPENSATION_TENTHS_EV = "exposure_compensation_tenths_ev"
         const val MAX_IMAGE_DIMENSION = "max_image_dimension"
         const val JPEG_QUALITY = "jpeg_quality"
         const val PALETTE_COLORS = "palette_colors"
@@ -99,11 +118,20 @@ object ConfigurationMigration {
         require(version <= AppConfiguration.CURRENT_SCHEMA_VERSION) {
             "Configuration schema $version is newer than this application supports"
         }
-        var migrated = stored.toMutableMap()
+        val migrated = stored.toMutableMap()
         if (version < 2) {
             val defaults = ConfigurationCodec.encode(AppConfiguration.defaults())
             defaults.forEach { (key, value) -> migrated.putIfAbsent(key, value) }
             migrated[ConfigurationCodec.Keys.SCHEMA_VERSION] = "2"
+        }
+        if (version < 3) {
+            val defaults = ConfigurationCodec.encode(AppConfiguration.defaults())
+            listOf(
+                ConfigurationCodec.Keys.FOCUS_MODE,
+                ConfigurationCodec.Keys.WHITE_BALANCE_MODE,
+                ConfigurationCodec.Keys.EXPOSURE_COMPENSATION_TENTHS_EV,
+            ).forEach { key -> migrated.putIfAbsent(key, defaults.getValue(key)) }
+            migrated[ConfigurationCodec.Keys.SCHEMA_VERSION] = "3"
         }
         return migrated
     }

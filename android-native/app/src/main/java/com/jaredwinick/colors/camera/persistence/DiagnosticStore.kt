@@ -84,6 +84,7 @@ class DiagnosticStore(context: Context) {
 
     private fun CaptureDiagnostic.toJson(): JSONObject = JSONObject().apply {
         put("record_id", recordId)
+        put("capture_id", captureId)
         put("session_id", sessionId)
         put("slot_id", slotId)
         put("scheduled_for", scheduledFor)
@@ -107,6 +108,13 @@ class DiagnosticStore(context: Context) {
         put("battery_optimization_exempt", batteryOptimizationExempt)
         put("station_wake_lock_held", stationWakeLockHeld)
         putNullable("image_path", imagePath)
+        putNullable("image_bytes", imageBytes)
+        putNullable("source_width", sourceWidth)
+        putNullable("source_height", sourceHeight)
+        putNullable("width", width)
+        putNullable("height", height)
+        putNullable("processing_duration_ms", processingDurationMs)
+        putNullable("camera_settings", cameraSettings)
         put("manual", manual)
     }
 
@@ -116,6 +124,7 @@ class DiagnosticStore(context: Context) {
 
     private fun fromJson(json: JSONObject) = CaptureDiagnostic(
         recordId = json.getString("record_id"),
+        captureId = json.optString("capture_id", json.getString("record_id")),
         sessionId = json.optString("session_id"),
         slotId = json.getString("slot_id"),
         scheduledFor = json.getLong("scheduled_for"),
@@ -136,6 +145,13 @@ class DiagnosticStore(context: Context) {
         batteryOptimizationExempt = json.optBoolean("battery_optimization_exempt"),
         stationWakeLockHeld = json.optBoolean("station_wake_lock_held"),
         imagePath = json.nullableString("image_path"),
+        imageBytes = json.nullableLong("image_bytes"),
+        sourceWidth = json.nullableInt("source_width"),
+        sourceHeight = json.nullableInt("source_height"),
+        width = json.nullableInt("width"),
+        height = json.nullableInt("height"),
+        processingDurationMs = json.nullableLong("processing_duration_ms"),
+        cameraSettings = json.nullableString("camera_settings"),
         manual = json.optBoolean("manual"),
     )
 

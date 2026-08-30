@@ -85,16 +85,18 @@ object TimingReport {
 
     fun csv(records: List<CaptureDiagnostic>): String = buildString {
         appendLine(
-            "record_id,session_id,slot_id,scheduled_for,trigger_source,trigger_received_at," +
+            "record_id,capture_id,session_id,slot_id,scheduled_for,trigger_source,trigger_received_at," +
                 "service_received_at,service_dispatch_ms,capture_started_at,captured_at,completed_at," +
                 "trigger_lateness_ms,capture_lateness_ms,result,error_code,screen_interactive," +
                 "charging,plugged,battery_percent,device_idle_mode,power_save_mode," +
-                "battery_optimization_exempt,station_wake_lock_held,image_path,manual",
+                "battery_optimization_exempt,station_wake_lock_held,image_path,image_bytes," +
+                "source_width,source_height,width,height,processing_duration_ms,camera_settings,manual",
         )
         records.sortedBy { it.scheduledFor }.forEach { record ->
             appendLine(
                 listOf(
                     record.recordId,
+                    record.captureId,
                     record.sessionId,
                     record.slotId,
                     UtcSchedule.format(record.scheduledFor),
@@ -118,6 +120,13 @@ object TimingReport {
                     record.batteryOptimizationExempt,
                     record.stationWakeLockHeld,
                     record.imagePath ?: "",
+                    record.imageBytes ?: "",
+                    record.sourceWidth ?: "",
+                    record.sourceHeight ?: "",
+                    record.width ?: "",
+                    record.height ?: "",
+                    record.processingDurationMs ?: "",
+                    record.cameraSettings ?: "",
                     record.manual,
                 ).joinToString(",") { csvEscape(it.toString()) },
             )

@@ -25,6 +25,7 @@ import com.jaredwinick.colors.camera.camera.StationService
 import com.jaredwinick.colors.camera.config.ConfigurationStore
 import com.jaredwinick.colors.camera.diagnostics.TimingReport
 import com.jaredwinick.colors.camera.persistence.DiagnosticStore
+import com.jaredwinick.colors.camera.persistence.ProductionCaptureRepository
 import com.jaredwinick.colors.camera.persistence.StationPreferences
 import com.jaredwinick.colors.camera.schedule.AlarmScheduler
 import com.jaredwinick.colors.camera.schedule.UtcSchedule
@@ -35,6 +36,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var preferences: StationPreferences
     private lateinit var diagnostics: DiagnosticStore
     private lateinit var configurationStore: ConfigurationStore
+    private lateinit var captureRepository: ProductionCaptureRepository
     private lateinit var intervalInput: EditText
     private lateinit var precisionModeInput: CheckBox
     private lateinit var statusText: TextView
@@ -67,6 +69,7 @@ class MainActivity : AppCompatActivity() {
         preferences = StationPreferences(this)
         diagnostics = DiagnosticStore(this)
         configurationStore = ConfigurationStore(this)
+        captureRepository = ProductionCaptureRepository(this)
         intervalInput = findViewById(R.id.intervalMinutes)
         precisionModeInput = findViewById(R.id.precisionMode)
         statusText = findViewById(R.id.statusText)
@@ -81,6 +84,7 @@ class MainActivity : AppCompatActivity() {
             withCameraPermission(::captureNow)
         }
         findViewById<Button>(R.id.exportReport).setOnClickListener { shareReport() }
+        findViewById<Button>(R.id.shareLatestCapture).setOnClickListener { shareLatestCapture() }
         findViewById<Button>(R.id.batterySettings).setOnClickListener {
             openBatteryOptimizationSettings()
         }
@@ -221,6 +225,21 @@ class MainActivity : AppCompatActivity() {
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
         startActivity(Intent.createChooser(share, "Share timing report"))
+    }
+
+    private fun shareLatestCapture() {
+        val image = captureRepository.latestCommittedImage()
+        if (image == null) {
+            toast("No completed production capture is available yet")
+            return
+        }
+        val uri = FileProvider.getUriForFile(this, "$packageName.files", image)
+        val share = Intent(Intent.ACTION_SEND).apply {
+            type = "image/jpeg"
+            putExtra(Intent.EXTRA_STREAM, uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        startActivity(Intent.createChooser(share, "Share latest production image"))
     }
 
     private fun canScheduleExactAlarms(): Boolean =

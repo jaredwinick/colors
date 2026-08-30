@@ -2,6 +2,7 @@ package com.jaredwinick.colors.camera.diagnostics
 
 data class CaptureDiagnostic(
     val recordId: String,
+    val captureId: String = recordId,
     val sessionId: String,
     val slotId: String,
     val scheduledFor: Long,
@@ -22,6 +23,13 @@ data class CaptureDiagnostic(
     val triggerSource: String = TRIGGER_UNKNOWN,
     val serviceReceivedAt: Long = alarmReceivedAt,
     val imagePath: String? = null,
+    val imageBytes: Long? = null,
+    val sourceWidth: Int? = null,
+    val sourceHeight: Int? = null,
+    val width: Int? = null,
+    val height: Int? = null,
+    val processingDurationMs: Long? = null,
+    val cameraSettings: String? = null,
     val manual: Boolean = false,
 ) {
     val alarmLatenessMs: Long
