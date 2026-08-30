@@ -19,6 +19,9 @@
     <string name="configuration_description">These settings are validated and versioned. They will drive masking, palette processing, retry, and retention work in the next implementation issues.</string>
     <string name="device_id_label">Device ID</string>
     <string name="front_camera_label">Use front camera (back camera is default)</string>
+    <string name="continuous_auto_focus_label">Use continuous autofocus (infinity focus is default)</string>
+    <string name="automatic_white_balance_label">Use automatic white balance (daylight is default)</string>
+    <string name="exposure_compensation_label">Exposure compensation (tenths of an EV; default −3)</string>
     <string name="max_image_dimension_label">Maximum image dimension (pixels)</string>
     <string name="jpeg_quality_label">JPEG quality (1–95)</string>
     <string name="palette_colors_label">Palette colors (3–10)</string>

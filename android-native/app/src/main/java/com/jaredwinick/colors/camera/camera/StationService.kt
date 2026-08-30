@@ -12,7 +12,6 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.Build
-import android.os.Environment
 import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
@@ -20,27 +19,40 @@ import android.os.SystemClock
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
+import androidx.camera.camera2.interop.Camera2CameraInfo
+import androidx.camera.camera2.interop.ExperimentalCamera2Interop
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleService
 import com.jaredwinick.colors.camera.R
 import com.jaredwinick.colors.camera.config.CameraLens
+import com.jaredwinick.colors.camera.config.AppConfiguration
 import com.jaredwinick.colors.camera.config.ConfigurationStore
 import com.jaredwinick.colors.camera.diagnostics.CaptureDiagnostic
 import com.jaredwinick.colors.camera.persistence.DiagnosticStore
+import com.jaredwinick.colors.camera.persistence.ProductionCaptureMetadata
+import com.jaredwinick.colors.camera.persistence.ProductionCaptureRepository
 import com.jaredwinick.colors.camera.persistence.StationPreferences
+import com.jaredwinick.colors.camera.processing.CaptureProcessingException
+import com.jaredwinick.colors.camera.processing.ImageNormalizer
 import com.jaredwinick.colors.camera.schedule.AlarmScheduler
 import com.jaredwinick.colors.camera.schedule.UtcSchedule
 import com.jaredwinick.colors.camera.ui.MainActivity
 import java.io.File
+import java.time.Instant
 import java.util.UUID
+import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 
+@ExperimentalCamera2Interop
 class StationService : LifecycleService() {
     private lateinit var preferences: StationPreferences
     private lateinit var diagnostics: DiagnosticStore
     private lateinit var configurationStore: ConfigurationStore
+    private lateinit var captureRepository: ProductionCaptureRepository
+    private val imageNormalizer = ImageNormalizer()
+    private val processingExecutor = Executors.newSingleThreadExecutor()
     private val captureInProgress = AtomicBoolean(false)
     private val mainHandler = Handler(Looper.getMainLooper())
     private var stationWakeLock: PowerManager.WakeLock? = null
@@ -51,6 +63,7 @@ class StationService : LifecycleService() {
         preferences = StationPreferences(this)
         diagnostics = DiagnosticStore(this)
         configurationStore = ConfigurationStore(this)
+        captureRepository = ProductionCaptureRepository(this)
         diagnostics.recoverInterrupted()
         createNotificationChannel()
         promoteToForeground()
@@ -123,8 +136,10 @@ class StationService : LifecycleService() {
 
         val sessionId = if (manual) "manual" else preferences.sessionId
         val power = PowerSnapshotReader.read(this)
+        val captureId = UUID.randomUUID().toString()
         val record = CaptureDiagnostic(
-            recordId = UUID.randomUUID().toString(),
+            recordId = captureId,
+            captureId = captureId,
             sessionId = sessionId,
             slotId = if (manual) "manual-$serviceReceivedAt" else "utc-$scheduledFor",
             scheduledFor = scheduledFor,
@@ -184,12 +199,11 @@ class StationService : LifecycleService() {
         }
         val finished = AtomicBoolean(false)
         var activeRecord = record
-        var activeOutputFile: File? = null
         var cameraProvider: ProcessCameraProvider? = null
         val watchdog = Runnable {
             if (finished.compareAndSet(false, true)) {
                 cameraProvider?.unbindAll()
-                activeOutputFile?.delete()
+                captureRepository.abandon(captureId)
                 releaseWakeLock(wakeLock)
                 finishCapture(activeRecord, "CAPTURE_TIMEOUT")
             }
@@ -200,54 +214,68 @@ class StationService : LifecycleService() {
         providerFuture.addListener({
             if (finished.get()) return@addListener
             try {
-                cameraProvider = providerFuture.get()
-                cameraProvider?.unbindAll()
+                val provider = providerFuture.get()
+                cameraProvider = provider
+                provider.unbindAll()
                 val configuration = configurationStore.load()
-                val imageCapture = ImageCapture.Builder()
-                    .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
-                    .setJpegQuality(configuration.jpegQuality)
-                    .build()
                 val selector = when (configuration.cameraLens) {
                     CameraLens.BACK -> CameraSelector.DEFAULT_BACK_CAMERA
                     CameraLens.FRONT -> CameraSelector.DEFAULT_FRONT_CAMERA
                 }
-                cameraProvider?.bindToLifecycle(this, selector, imageCapture)
+                val cameraInfo = selector.filter(provider.availableCameraInfos).firstOrNull()
+                    ?: throw IllegalStateException("Configured camera is unavailable")
+                val imageCaptureBuilder = ImageCapture.Builder()
+                    .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+                    .setJpegQuality(configuration.jpegQuality)
+                    .setFlashMode(ImageCapture.FLASH_MODE_OFF)
+                val appliedSettings = CameraControlConfigurator.configure(
+                    imageCaptureBuilder,
+                    cameraInfo,
+                    configuration,
+                )
+                val cameraId = Camera2CameraInfo.from(cameraInfo).cameraId
+                val imageCapture = imageCaptureBuilder.build()
+                provider.bindToLifecycle(this, selector, imageCapture)
 
                 val startedAt = System.currentTimeMillis()
-                val outputFile = captureFile(startedAt)
-                activeOutputFile = outputFile
-                activeRecord = record.copy(captureStartedAt = startedAt)
+                val outputFile = captureRepository.rawFile(captureId)
+                activeRecord = record.copy(
+                    captureStartedAt = startedAt,
+                    cameraSettings = appliedSettings.diagnosticSummary(),
+                )
                 diagnostics.begin(activeRecord)
                 imageCapture.takePicture(
                     ImageCapture.OutputFileOptions.Builder(outputFile).build(),
                     ContextCompat.getMainExecutor(this),
                     object : ImageCapture.OnImageSavedCallback {
                         override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
-                            if (!finished.compareAndSet(false, true)) return
-                            mainHandler.removeCallbacks(watchdog)
+                            if (finished.get()) {
+                                captureRepository.abandon(captureId)
+                                return
+                            }
                             cameraProvider?.unbindAll()
-                            releaseWakeLock(wakeLock)
                             val capturedAt = System.currentTimeMillis()
-                            diagnostics.complete(
-                                activeRecord.copy(
-                                    capturedAt = capturedAt,
-                                    completedAt = capturedAt,
-                                    result = CaptureDiagnostic.RESULT_SUCCESS,
-                                    imagePath = outputFile.absolutePath,
-                                ),
+                            processCapturedImage(
+                                captureId = captureId,
+                                rawFile = outputFile,
+                                capturedAt = capturedAt,
+                                record = activeRecord,
+                                configuration = configuration,
+                                selectedCamera = configuration.cameraLens.name,
+                                cameraId = cameraId,
+                                appliedSettings = appliedSettings,
+                                finished = finished,
+                                watchdog = watchdog,
+                                wakeLock = wakeLock,
                             )
-                            preferences.setLastCapture(capturedAt)
-                            captureInProgress.set(false)
-                            updateNotification()
-                            stopIfManualOnly()
                         }
 
                         override fun onError(exception: ImageCaptureException) {
                             if (!finished.compareAndSet(false, true)) return
                             mainHandler.removeCallbacks(watchdog)
                             cameraProvider?.unbindAll()
+                            captureRepository.abandon(captureId)
                             releaseWakeLock(wakeLock)
-                            outputFile.delete()
                             finishCapture(activeRecord, "CAMERA_CAPTURE_${exception.imageCaptureError}")
                         }
                     },
@@ -256,11 +284,108 @@ class StationService : LifecycleService() {
                 if (finished.compareAndSet(false, true)) {
                     mainHandler.removeCallbacks(watchdog)
                     cameraProvider?.unbindAll()
+                    captureRepository.abandon(captureId)
                     releaseWakeLock(wakeLock)
-                    finishCapture(record, "CAMERA_BIND_FAILED")
+                    finishCapture(activeRecord, "CAMERA_BIND_FAILED")
                 }
             }
         }, ContextCompat.getMainExecutor(this))
+    }
+
+    private fun processCapturedImage(
+        captureId: String,
+        rawFile: File,
+        capturedAt: Long,
+        record: CaptureDiagnostic,
+        configuration: AppConfiguration,
+        selectedCamera: String,
+        cameraId: String,
+        appliedSettings: AppliedCameraSettings,
+        finished: AtomicBoolean,
+        watchdog: Runnable,
+        wakeLock: PowerManager.WakeLock,
+    ) {
+        processingExecutor.execute {
+            val processingStartedAt = SystemClock.elapsedRealtime()
+            val normalizedTemp = captureRepository.normalizedTempFile(captureId)
+            val normalization = runCatching {
+                imageNormalizer.normalize(
+                    source = rawFile,
+                    destination = normalizedTemp,
+                    maximumDimension = configuration.maxImageDimension,
+                    jpegQuality = configuration.jpegQuality,
+                )
+            }
+            if (!finished.compareAndSet(false, true)) {
+                captureRepository.abandon(captureId)
+                return@execute
+            }
+            mainHandler.removeCallbacks(watchdog)
+            val processingDurationMs = SystemClock.elapsedRealtime() - processingStartedAt
+            val completion = normalization.mapCatching { image ->
+                val metadata = ProductionCaptureMetadata(
+                    captureId = captureId,
+                    capturedAt = Instant.ofEpochMilli(capturedAt).toString(),
+                    sourceDimensions = image.sourceDimensions,
+                    finalDimensions = image.finalDimensions,
+                    byteCount = image.byteCount,
+                    selectedCamera = selectedCamera,
+                    cameraId = cameraId,
+                    jpegQuality = configuration.jpegQuality,
+                    maximumDimension = configuration.maxImageDimension,
+                    sourceExifOrientation = image.sourceExifOrientation,
+                    cameraSettings = appliedSettings,
+                    processingDurationMs = processingDurationMs,
+                )
+                val finalFile = captureRepository.commit(normalizedTemp, metadata)
+                image to finalFile
+            }
+            rawFile.delete()
+
+            mainHandler.post {
+                releaseWakeLock(wakeLock)
+                completion.fold(
+                    onSuccess = { (image, finalFile) ->
+                        val completedAt = System.currentTimeMillis()
+                        diagnostics.complete(
+                            record.copy(
+                                capturedAt = capturedAt,
+                                completedAt = completedAt,
+                                result = CaptureDiagnostic.RESULT_SUCCESS,
+                                imagePath = finalFile.absolutePath,
+                                imageBytes = image.byteCount,
+                                sourceWidth = image.sourceDimensions.width,
+                                sourceHeight = image.sourceDimensions.height,
+                                width = image.finalDimensions.width,
+                                height = image.finalDimensions.height,
+                                processingDurationMs = processingDurationMs,
+                                cameraSettings = appliedSettings.diagnosticSummary(),
+                            ),
+                        )
+                        preferences.setLastCapture(capturedAt)
+                        captureInProgress.set(false)
+                        updateNotification()
+                        stopIfManualOnly()
+                    },
+                    onFailure = { error ->
+                        captureRepository.abandon(captureId)
+                        val code = if (error is CaptureProcessingException) {
+                            error.code
+                        } else {
+                            "CAPTURE_COMMIT_FAILED"
+                        }
+                        finishCapture(
+                            record.copy(
+                                capturedAt = capturedAt,
+                                processingDurationMs = processingDurationMs,
+                                cameraSettings = appliedSettings.diagnosticSummary(),
+                            ),
+                            code,
+                        )
+                    },
+                )
+            }
+        }
     }
 
     private fun finishCapture(record: CaptureDiagnostic, errorCode: String) {
@@ -283,12 +408,6 @@ class StationService : LifecycleService() {
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
         }
-    }
-
-    private fun captureFile(timestamp: Long): File {
-        val root = getExternalFilesDir(Environment.DIRECTORY_PICTURES) ?: filesDir
-        val directory = File(root, "captures").apply { mkdirs() }
-        return File(directory, "colors-${timestamp}-${UUID.randomUUID()}.jpg")
     }
 
     private fun releaseWakeLock(wakeLock: PowerManager.WakeLock) {
@@ -447,6 +566,7 @@ class StationService : LifecycleService() {
     override fun onDestroy() {
         cancelPrecisionTimer()
         releaseStationWakeLock()
+        processingExecutor.shutdown()
         super.onDestroy()
     }
 

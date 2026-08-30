@@ -7,12 +7,25 @@ enum class CameraLens {
     FRONT,
 }
 
+enum class FocusMode {
+    INFINITY,
+    CONTINUOUS_AUTO,
+}
+
+enum class WhiteBalanceMode {
+    DAYLIGHT,
+    AUTO,
+}
+
 data class AppConfiguration(
     val schemaVersion: Int = CURRENT_SCHEMA_VERSION,
     val intervalMinutes: Int = 15,
     val precisionMode: Boolean = true,
     val deviceId: String = "android-sky-camera",
     val cameraLens: CameraLens = CameraLens.BACK,
+    val focusMode: FocusMode = FocusMode.INFINITY,
+    val whiteBalanceMode: WhiteBalanceMode = WhiteBalanceMode.DAYLIGHT,
+    val exposureCompensationTenthsEv: Int = -3,
     val maxImageDimension: Int = 1_920,
     val jpegQuality: Int = 85,
     val paletteColors: Int = 6,
@@ -35,6 +48,9 @@ data class AppConfiguration(
         UtcSchedule.validateIntervalMinutes(intervalMinutes)
         require(DEVICE_ID_PATTERN.matches(deviceId)) {
             "Device ID must contain 1-100 letters, numbers, dots, underscores, or hyphens"
+        }
+        require(exposureCompensationTenthsEv in -20..20) {
+            "Exposure compensation must be between -20 and 20 tenths of an EV"
         }
         require(maxImageDimension in 320..8_192) {
             "Maximum image dimension must be between 320 and 8192 pixels"
@@ -72,7 +88,7 @@ data class AppConfiguration(
     }
 
     companion object {
-        const val CURRENT_SCHEMA_VERSION = 2
+        const val CURRENT_SCHEMA_VERSION = 3
         private val DEVICE_ID_PATTERN = Regex("[A-Za-z0-9._-]{1,100}")
 
         fun defaults(): AppConfiguration = AppConfiguration()
