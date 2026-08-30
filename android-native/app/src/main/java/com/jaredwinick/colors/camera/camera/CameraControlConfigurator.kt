@@ -10,7 +10,7 @@ import androidx.camera.core.CameraInfo
 import androidx.camera.core.ImageCapture
 import com.jaredwinick.colors.camera.config.AppConfiguration
 
-@OptIn(ExperimentalCamera2Interop::class)
+@androidx.annotation.OptIn(markerClass = [ExperimentalCamera2Interop::class])
 object CameraControlConfigurator {
     fun configure(
         builder: ImageCapture.Builder,

@@ -97,6 +97,15 @@ class ProductionCaptureRepository(context: Context) {
         normalizedTempFile(captureId).delete()
     }
 
+    @Synchronized
+    fun latestCommittedImage(): File? = metadataDirectory
+        .listFiles { file -> file.extension.equals("json", ignoreCase = true) }
+        .orEmpty()
+        .sortedByDescending(File::lastModified)
+        .firstNotNullOfOrNull { metadata ->
+            File(imageDirectory, "${metadata.nameWithoutExtension}.jpg").takeIf(File::isFile)
+        }
+
     private fun move(source: File, destination: File) {
         runCatching {
             Files.move(source.toPath(), destination.toPath(), StandardCopyOption.ATOMIC_MOVE)

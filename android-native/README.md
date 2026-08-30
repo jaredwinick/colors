@@ -241,6 +241,10 @@ the intended UTC slot, trigger source, service receipt, capture start and
 completion, timing deltas, screen/power state, safe error code, and image path.
 The ingest token and configuration secrets are never included.
 
+**Share latest production image** opens Android's share sheet for the newest
+fully committed JPEG. This makes daylight, sunset, night, overcast, orientation,
+and file-size checks possible without moving the mounted phone.
+
 Common error codes include `CAMERA_PERMISSION_MISSING`, `CAMERA_BIND_FAILED`,
 `CAMERA_CAPTURE_*`, `CAPTURE_TIMEOUT`, `OVERLAP_PREVENTED`, `DUPLICATE_SLOT`,
 `PROCESS_INTERRUPTED`, `ALARM_SCHEDULE_FAILED`,
