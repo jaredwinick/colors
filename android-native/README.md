@@ -6,16 +6,16 @@ through Issues #30-#38. The app targets the dedicated Samsung Galaxy S9+ running
 Android 10 (API 29).
 
 The native app currently provides the production foundation, proven capture
-scheduler, and production JPEG normalization stage. Masking, palette
-extraction, durable upload, and full operations screens are delivered by the
-subsequent roadmap issues. The Termux client in `android/` remains the rollback
-path until the native pipeline passes its production soak test.
+scheduler, production JPEG normalization, and fixed sky-mask calibration.
+Palette extraction, durable upload, and full operations screens are delivered
+by the subsequent roadmap issues. The Termux client in `android/` remains the
+rollback path until the native pipeline passes its production soak test.
 
 ## Production identity and architecture
 
 - Application name: **Colors Camera**
 - Application ID and namespace: `com.jaredwinick.colors.camera`
-- Version: `0.3.1` (`versionCode` 5)
+- Version: `0.4.0` (`versionCode` 6)
 - Capture files: app-specific external `Pictures/captures`
 - Diagnostics and configuration: app-private storage
 - Ingest token: encrypted with a non-exportable Android Keystore AES-GCM key
@@ -44,6 +44,7 @@ Code is split by responsibility:
 | `schedule` | UTC cadence, exact-alarm fallback, reboot restore |
 | `ui` | Station controls and production settings |
 | `processing` | JPEG normalization and later mask/palette work |
+| `mask` | Schema-v1 validation, rasterization, durable calibration, and previews |
 | `network` | Reserved for durable Worker upload work in Issues #33-#34 |
 
 The scheduler preserves the behavior proven in Issue #27: a foreground
@@ -121,6 +122,44 @@ metadata is committed last under `Pictures/capture-metadata`. A metadata file is
 therefore the completion marker and can never point to a partial JPEG. Startup
 removes temporary work and new-format orphan images while leaving legacy POC
 captures alone.
+
+## Fixed sky mask and recalibration
+
+Open **Sky mask calibration** from the station screen. The bundled reset mask
+is byte-for-byte identical to `android/sky-mask.json`, the known-good Galaxy
+S9+ skyline calibration. Its normalized coordinates apply at every image size.
+The original JPEG is never cropped, painted, or masked; the mask only determines
+which pixels a later palette stage may sample.
+
+The calibration preview uses the latest completed production JPEG:
+
+- cyan is included sky;
+- red is excluded from palette sampling;
+- yellow lines mark exclusions; and
+- the optional 0.1-step grid labels the include-boundary point indices.
+
+To make a small mount adjustment without Termux:
+
+1. Tap **Export active mask JSON** and edit the normalized coordinates with any
+   Android document editor.
+2. Tap **Import mask JSON and preview** and select the changed file.
+3. Inspect or share the full-resolution cyan/red preview. The app also
+   rasterizes the same draft at the configured palette-analysis resolution.
+4. Check the confirmation only after every roof, tree, and other fixed object
+   is red, then tap **Activate confirmed mask**.
+
+Importing never changes the active mask. A draft must pass schema, coordinate,
+polygon, rectangle, included-pixel, and included-fraction validation at both
+resolutions; it must also have a successfully generated preview. Activation is
+atomic and saves the previous active mask as a backup. **Preview previous active
+backup** stages recovery without activating it, and **Preview bundled Galaxy
+S9+ default** provides a safe reset through the same preview-and-confirm path.
+An invalid active file is preserved for diagnosis and automatically recovered
+from the backup or bundled default at startup.
+
+Palette code must obtain its Boolean sampling map through
+`validatedAnalysisMask`. A malformed or undersized mask throws before a palette
+can be built and does not mutate or delete the complete source capture.
 
 The release endpoint is compiled into the app:
 

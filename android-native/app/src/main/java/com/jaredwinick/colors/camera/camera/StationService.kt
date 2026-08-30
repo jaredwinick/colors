@@ -30,6 +30,7 @@ import com.jaredwinick.colors.camera.config.CameraLens
 import com.jaredwinick.colors.camera.config.AppConfiguration
 import com.jaredwinick.colors.camera.config.ConfigurationStore
 import com.jaredwinick.colors.camera.diagnostics.CaptureDiagnostic
+import com.jaredwinick.colors.camera.mask.SkyMaskRepository
 import com.jaredwinick.colors.camera.persistence.DiagnosticStore
 import com.jaredwinick.colors.camera.persistence.ProductionCaptureMetadata
 import com.jaredwinick.colors.camera.persistence.ProductionCaptureRepository
@@ -64,6 +65,7 @@ class StationService : LifecycleService() {
         diagnostics = DiagnosticStore(this)
         configurationStore = ConfigurationStore(this)
         captureRepository = ProductionCaptureRepository(this)
+        SkyMaskRepository(this)
         diagnostics.recoverInterrupted()
         createNotificationChannel()
         promoteToForeground()
