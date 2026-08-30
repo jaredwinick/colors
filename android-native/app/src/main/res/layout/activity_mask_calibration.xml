@@ -1,0 +1,123 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="20dp">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/mask_calibration_description" />
+
+        <TextView
+            android:id="@+id/maskStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:fontFamily="monospace"
+            android:textIsSelectable="true" />
+
+        <Button
+            android:id="@+id/previewActiveMask"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="@string/preview_active_mask" />
+
+        <CheckBox
+            android:id="@+id/showCalibrationGrid"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:checked="true"
+            android:text="@string/show_calibration_grid" />
+
+        <TextView
+            android:id="@+id/maskPreviewStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:fontFamily="monospace"
+            android:text="@string/no_mask_preview" />
+
+        <ImageView
+            android:id="@+id/maskPreviewImage"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:adjustViewBounds="true"
+            android:contentDescription="@string/mask_preview_image_description"
+            android:scaleType="fitCenter" />
+
+        <Button
+            android:id="@+id/shareMaskPreview"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:enabled="false"
+            android:text="@string/share_mask_preview" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="18dp"
+            android:text="@string/change_mask_heading"
+            android:textAppearance="?android:attr/textAppearanceLarge"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/change_mask_description" />
+
+        <Button
+            android:id="@+id/importMask"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/import_mask_json" />
+
+        <Button
+            android:id="@+id/previewBackupMask"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/preview_backup_mask" />
+
+        <Button
+            android:id="@+id/previewDefaultMask"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/preview_default_mask" />
+
+        <CheckBox
+            android:id="@+id/confirmMaskPreview"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:enabled="false"
+            android:text="@string/confirm_mask_preview" />
+
+        <Button
+            android:id="@+id/activateMask"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:enabled="false"
+            android:text="@string/activate_mask" />
+
+        <Button
+            android:id="@+id/discardMaskDraft"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/discard_mask_draft" />
+
+        <Button
+            android:id="@+id/exportMask"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="@string/export_active_mask" />
+    </LinearLayout>
+</ScrollView>
+

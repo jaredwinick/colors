@@ -91,6 +91,9 @@ class MainActivity : AppCompatActivity() {
         findViewById<Button>(R.id.openSettings).setOnClickListener {
             startActivity(Intent(this, SettingsActivity::class.java))
         }
+        findViewById<Button>(R.id.maskCalibration).setOnClickListener {
+            startActivity(Intent(this, MaskCalibrationActivity::class.java))
+        }
     }
 
     override fun onResume() {

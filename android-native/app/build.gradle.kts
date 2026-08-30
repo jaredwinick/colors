@@ -11,8 +11,8 @@ android {
         applicationId = "com.jaredwinick.colors.camera"
         minSdk = 29
         targetSdk = 29
-        versionCode = 5
-        versionName = "0.3.1"
+        versionCode = 6
+        versionName = "0.4.0"
 
         buildConfigField(
             "String",
@@ -72,4 +72,5 @@ dependencies {
     implementation("androidx.exifinterface:exifinterface:1.4.2")
 
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20240303")
 }

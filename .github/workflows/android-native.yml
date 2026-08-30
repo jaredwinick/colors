@@ -31,6 +31,10 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
+      - name: Verify bundled sky mask matches the reference calibration
+        working-directory: android-native
+        run: cmp ../android/sky-mask.json app/src/main/res/raw/sky_mask.json
+
       - name: Test and assemble debug APK
         working-directory: android-native
         run: ./gradlew testDebugUnitTest assembleDebug lintDebug --stacktrace

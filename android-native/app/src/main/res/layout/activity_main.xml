@@ -53,6 +53,12 @@
             android:layout_height="wrap_content"
             android:text="@string/app_settings" />
 
+        <Button
+            android:id="@+id/maskCalibration"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/mask_calibration" />
+
         <LinearLayout
             style="?android:attr/buttonBarStyle"
             android:layout_width="match_parent"
