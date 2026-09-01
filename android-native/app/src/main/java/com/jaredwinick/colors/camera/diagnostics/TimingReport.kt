@@ -90,7 +90,9 @@ object TimingReport {
                 "trigger_lateness_ms,capture_lateness_ms,result,error_code,screen_interactive," +
                 "charging,plugged,battery_percent,device_idle_mode,power_save_mode," +
                 "battery_optimization_exempt,station_wake_lock_held,image_path,image_bytes," +
-                "source_width,source_height,width,height,processing_duration_ms,camera_settings,manual",
+                "source_width,source_height,width,height,processing_duration_ms,camera_settings," +
+                "palette,palette_size,palette_analysis_width,palette_analysis_height," +
+                "palette_included_pixels,palette_duration_ms,palette_peak_pss_kib,manual",
         )
         records.sortedBy { it.scheduledFor }.forEach { record ->
             appendLine(
@@ -127,6 +129,13 @@ object TimingReport {
                     record.height ?: "",
                     record.processingDurationMs ?: "",
                     record.cameraSettings ?: "",
+                    record.palette ?: "",
+                    record.paletteSize ?: "",
+                    record.paletteAnalysisWidth ?: "",
+                    record.paletteAnalysisHeight ?: "",
+                    record.paletteIncludedPixels ?: "",
+                    record.paletteDurationMs ?: "",
+                    record.palettePeakPssKib ?: "",
                     record.manual,
                 ).joinToString(",") { csvEscape(it.toString()) },
             )

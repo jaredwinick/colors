@@ -41,8 +41,13 @@
     <string name="exposure_compensation_label">Exposure compensation (tenths of an EV; default −3)</string>
     <string name="max_image_dimension_label">Maximum image dimension (pixels)</string>
     <string name="jpeg_quality_label">JPEG quality (1–95)</string>
-    <string name="palette_colors_label">Palette colors (3–10)</string>
+    <string name="palette_colors_label">Palette colors (3–10; default 8)</string>
     <string name="palette_analysis_dimension_label">Palette analysis dimension (pixels)</string>
+    <string name="palette_preview_description">Changing the color count or analysis dimension requires a preview from the latest production image. Cyan shows sampled sky, red shows excluded areas, and the weighted palette appears below the image.</string>
+    <string name="preview_palette_settings">Generate palette preview</string>
+    <string name="no_palette_preview">No palette preview generated yet.</string>
+    <string name="palette_preview_image_description">Masked-sky palette preview with weighted color swatches</string>
+    <string name="confirm_palette_preview">I inspected this preview and accept these palette settings</string>
     <string name="max_pending_captures_label">Maximum pending captures</string>
     <string name="max_uploads_per_cycle_label">Maximum uploads per cycle</string>
     <string name="request_timeout_seconds_label">Request timeout (seconds)</string>

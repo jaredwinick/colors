@@ -6,16 +6,16 @@ through Issues #30-#38. The app targets the dedicated Samsung Galaxy S9+ running
 Android 10 (API 29).
 
 The native app currently provides the production foundation, proven capture
-scheduler, production JPEG normalization, and fixed sky-mask calibration.
-Palette extraction, durable upload, and full operations screens are delivered
-by the subsequent roadmap issues. The Termux client in `android/` remains the
+scheduler, production JPEG normalization, fixed sky-mask calibration, and
+deterministic weighted palette extraction. Durable upload and full operations
+screens are delivered by the subsequent roadmap issues. The Termux client in `android/` remains the
 rollback path until the native pipeline passes its production soak test.
 
 ## Production identity and architecture
 
 - Application name: **Colors Camera**
 - Application ID and namespace: `com.jaredwinick.colors.camera`
-- Version: `0.4.0` (`versionCode` 6)
+- Version: `0.5.0` (`versionCode` 7)
 - Capture files: app-specific external `Pictures/captures`
 - Diagnostics and configuration: app-private storage
 - Ingest token: encrypted with a non-exportable Android Keystore AES-GCM key
@@ -43,9 +43,10 @@ Code is split by responsibility:
 | `persistence` | App-private runtime and diagnostic stores |
 | `schedule` | UTC cadence, exact-alarm fallback, reboot restore |
 | `ui` | Station controls and production settings |
-| `processing` | JPEG normalization and later mask/palette work |
+| `processing` | JPEG normalization |
 | `mask` | Schema-v1 validation, rasterization, durable calibration, and previews |
-| `network` | Reserved for durable Worker upload work in Issues #33-#34 |
+| `palette` | Masked-sky sampling, deterministic weighted median cut, and previews |
+| `network` | Reserved for durable Worker upload work in Issue #34 |
 
 The scheduler preserves the behavior proven in Issue #27: a foreground
 service holds a partial wake lock in precision mode, an in-process timer owns
@@ -74,7 +75,7 @@ Current defaults match the working Termux pipeline:
 | Flash / night extension | off / not enabled |
 | Maximum image dimension | 1920 px |
 | JPEG quality | 85 |
-| Palette colors | 6 |
+| Palette colors | 8 |
 | Palette analysis dimension | 180 px |
 | Maximum pending captures | 192 |
 | Maximum uploads per cycle | 4 |
@@ -84,10 +85,12 @@ Current defaults match the working Termux pipeline:
 | Delivered-file retention | 7 days / 672 captures |
 | Log size | 1 MiB |
 
-Configuration schema version 3 is stored in app-private Android preferences.
-Schema-1 and schema-2 settings receive current defaults for new fields during
-migration; an unknown future schema is never interpreted as current
-configuration. All values are validated before saving.
+Configuration schema version 4 is stored in app-private Android preferences.
+Earlier settings receive current defaults for new fields during migration. A
+schema-3 installation still using the former six-color default is migrated to
+eight colors, while a deliberately customized count is preserved. An unknown
+future schema is never interpreted as current configuration. All values are
+validated before saving.
 
 ## Production camera and JPEG behavior
 
@@ -160,6 +163,30 @@ from the backup or bundled default at startup.
 Palette code must obtain its Boolean sampling map through
 `validatedAnalysisMask`. A malformed or undersized mask throws before a palette
 can be built and does not mutate or delete the complete source capture.
+
+## Weighted palette extraction
+
+After JPEG normalization, the app reduces a working bitmap to the configured
+longest analysis edge (180 pixels by default) and samples only pixels admitted
+by the validated active sky mask. A deterministic median-cut implementation
+builds 3-10 colors without dithering, merges duplicate representatives, and
+emits uppercase `#RRGGBB` colors in descending-weight order with a stable hex
+tie-break. Weights are positive and normalized to exactly one at six-decimal
+precision, matching the Worker's existing ingest shape.
+
+The complete JPEG is never altered by palette processing. Capture metadata
+stores the palette plus source/analysis dimensions, included-pixel count,
+requested and resulting color counts, elapsed time, and peak process memory. If
+the mask is invalid, fewer than three colors remain, or extraction otherwise
+fails, the app retains the complete normalized image and records a safe error
+instead of constructing an uploadable palette.
+
+Changing **Palette colors** or **Palette analysis dimension** in Production
+settings requires a preview from the latest committed image. The preview shows
+the cyan/red mask overlay and weighted color swatches; the exact settings cannot
+be saved until that visible result is explicitly confirmed. The default is
+eight colors, although a low-color scene can validly return fewer after
+duplicate representatives are merged, provided at least three remain.
 
 The release endpoint is compiled into the app:
 
@@ -278,7 +305,9 @@ Restore the known working Termux job if native development pauses:
 **Share timing report** exports `colors-camera-timing.csv`. Each row contains
 the intended UTC slot, trigger source, service receipt, capture start and
 completion, timing deltas, screen/power state, safe error code, and image path.
-The ingest token and configuration secrets are never included.
+The report also includes palette JSON, size, analysis dimensions, sampled-pixel
+count, elapsed time, and peak process memory. The ingest token and configuration
+secrets are never included.
 
 **Share latest production image** opens Android's share sheet for the newest
 fully committed JPEG. This makes daylight, sunset, night, overcast, orientation,
@@ -292,7 +321,9 @@ Common error codes include `CAMERA_PERMISSION_MISSING`, `CAMERA_BIND_FAILED`,
 `CAMERA_CAPTURE_*`, `CAPTURE_TIMEOUT`, `OVERLAP_PREVENTED`, `DUPLICATE_SLOT`,
 `PROCESS_INTERRUPTED`, `ALARM_SCHEDULE_FAILED`,
 `PRECISION_REQUIRES_EXTERNAL_POWER`, and
-`PRECISION_REQUIRES_BATTERY_EXEMPTION`.
+`PRECISION_REQUIRES_BATTERY_EXEMPTION`. Palette failures use safe codes such as
+`PALETTE_IMAGE_DECODE_FAILED`, `PALETTE_MASK_INVALID`,
+`PALETTE_QUANTIZATION_INVALID`, and `PALETTE_EXTRACTION_FAILED`.
 
 ## Stop or uninstall
 

@@ -31,12 +31,16 @@ import com.jaredwinick.colors.camera.config.AppConfiguration
 import com.jaredwinick.colors.camera.config.ConfigurationStore
 import com.jaredwinick.colors.camera.diagnostics.CaptureDiagnostic
 import com.jaredwinick.colors.camera.mask.SkyMaskRepository
+import com.jaredwinick.colors.camera.palette.PaletteExtractionException
+import com.jaredwinick.colors.camera.palette.PaletteExtractionResult
+import com.jaredwinick.colors.camera.palette.PaletteExtractor
 import com.jaredwinick.colors.camera.persistence.DiagnosticStore
 import com.jaredwinick.colors.camera.persistence.ProductionCaptureMetadata
 import com.jaredwinick.colors.camera.persistence.ProductionCaptureRepository
 import com.jaredwinick.colors.camera.persistence.StationPreferences
 import com.jaredwinick.colors.camera.processing.CaptureProcessingException
 import com.jaredwinick.colors.camera.processing.ImageNormalizer
+import com.jaredwinick.colors.camera.processing.ImageNormalizationResult
 import com.jaredwinick.colors.camera.schedule.AlarmScheduler
 import com.jaredwinick.colors.camera.schedule.UtcSchedule
 import com.jaredwinick.colors.camera.ui.MainActivity
@@ -52,7 +56,9 @@ class StationService : LifecycleService() {
     private lateinit var diagnostics: DiagnosticStore
     private lateinit var configurationStore: ConfigurationStore
     private lateinit var captureRepository: ProductionCaptureRepository
+    private lateinit var skyMasks: SkyMaskRepository
     private val imageNormalizer = ImageNormalizer()
+    private val paletteExtractor = PaletteExtractor()
     private val processingExecutor = Executors.newSingleThreadExecutor()
     private val captureInProgress = AtomicBoolean(false)
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -65,7 +71,7 @@ class StationService : LifecycleService() {
         diagnostics = DiagnosticStore(this)
         configurationStore = ConfigurationStore(this)
         captureRepository = ProductionCaptureRepository(this)
-        SkyMaskRepository(this)
+        skyMasks = SkyMaskRepository(this)
         diagnostics.recoverInterrupted()
         createNotificationChannel()
         promoteToForeground()
@@ -323,8 +329,20 @@ class StationService : LifecycleService() {
                 return@execute
             }
             mainHandler.removeCallbacks(watchdog)
-            val processingDurationMs = SystemClock.elapsedRealtime() - processingStartedAt
             val completion = normalization.mapCatching { image ->
+                val paletteAttempt = runCatching {
+                    paletteExtractor.extract(
+                        sourceFile = normalizedTemp,
+                        requestedColors = configuration.paletteColors,
+                        analysisDimension = configuration.paletteAnalysisDimension,
+                        masks = skyMasks,
+                    )
+                }
+                val processingDurationMs = SystemClock.elapsedRealtime() - processingStartedAt
+                val paletteResult = paletteAttempt.getOrNull()
+                val paletteErrorCode = paletteAttempt.exceptionOrNull()?.let { error ->
+                    if (error is PaletteExtractionException) error.code else "PALETTE_EXTRACTION_FAILED"
+                }
                 val metadata = ProductionCaptureMetadata(
                     captureId = captureId,
                     capturedAt = Instant.ofEpochMilli(capturedAt).toString(),
@@ -338,33 +356,56 @@ class StationService : LifecycleService() {
                     sourceExifOrientation = image.sourceExifOrientation,
                     cameraSettings = appliedSettings,
                     processingDurationMs = processingDurationMs,
+                    palette = paletteResult?.palette,
+                    paletteStatistics = paletteResult?.statistics,
+                    paletteErrorCode = paletteErrorCode,
                 )
                 val finalFile = captureRepository.commit(normalizedTemp, metadata)
-                image to finalFile
+                ProcessedCapture(
+                    image = image,
+                    finalFile = finalFile,
+                    palette = paletteResult,
+                    paletteErrorCode = paletteErrorCode,
+                    processingDurationMs = processingDurationMs,
+                )
             }
             rawFile.delete()
 
             mainHandler.post {
                 releaseWakeLock(wakeLock)
                 completion.fold(
-                    onSuccess = { (image, finalFile) ->
+                    onSuccess = { completed ->
                         val completedAt = System.currentTimeMillis()
+                        val paletteStatistics = completed.palette?.statistics
                         diagnostics.complete(
                             record.copy(
                                 capturedAt = capturedAt,
                                 completedAt = completedAt,
-                                result = CaptureDiagnostic.RESULT_SUCCESS,
-                                imagePath = finalFile.absolutePath,
-                                imageBytes = image.byteCount,
-                                sourceWidth = image.sourceDimensions.width,
-                                sourceHeight = image.sourceDimensions.height,
-                                width = image.finalDimensions.width,
-                                height = image.finalDimensions.height,
-                                processingDurationMs = processingDurationMs,
+                                result = if (completed.paletteErrorCode == null) {
+                                    CaptureDiagnostic.RESULT_SUCCESS
+                                } else {
+                                    "ERROR"
+                                },
+                                errorCode = completed.paletteErrorCode,
+                                imagePath = completed.finalFile.absolutePath,
+                                imageBytes = completed.image.byteCount,
+                                sourceWidth = completed.image.sourceDimensions.width,
+                                sourceHeight = completed.image.sourceDimensions.height,
+                                width = completed.image.finalDimensions.width,
+                                height = completed.image.finalDimensions.height,
+                                processingDurationMs = completed.processingDurationMs,
                                 cameraSettings = appliedSettings.diagnosticSummary(),
+                                palette = completed.palette?.palette?.toJson(),
+                                paletteSize = paletteStatistics?.paletteColors,
+                                paletteAnalysisWidth = paletteStatistics?.analysisSize?.width,
+                                paletteAnalysisHeight = paletteStatistics?.analysisSize?.height,
+                                paletteIncludedPixels = paletteStatistics?.includedPixels,
+                                paletteDurationMs = paletteStatistics?.elapsedMs,
+                                palettePeakPssKib = paletteStatistics?.peakPssKib,
                             ),
                         )
                         preferences.setLastCapture(capturedAt)
+                        completed.paletteErrorCode?.let(preferences::setLastError)
                         captureInProgress.set(false)
                         updateNotification()
                         stopIfManualOnly()
@@ -379,7 +420,7 @@ class StationService : LifecycleService() {
                         finishCapture(
                             record.copy(
                                 capturedAt = capturedAt,
-                                processingDurationMs = processingDurationMs,
+                                processingDurationMs = SystemClock.elapsedRealtime() - processingStartedAt,
                                 cameraSettings = appliedSettings.diagnosticSummary(),
                             ),
                             code,
@@ -389,6 +430,14 @@ class StationService : LifecycleService() {
             }
         }
     }
+
+    private data class ProcessedCapture(
+        val image: ImageNormalizationResult,
+        val finalFile: File,
+        val palette: PaletteExtractionResult?,
+        val paletteErrorCode: String?,
+        val processingDurationMs: Long,
+    )
 
     private fun finishCapture(record: CaptureDiagnostic, errorCode: String) {
         val completed = System.currentTimeMillis()

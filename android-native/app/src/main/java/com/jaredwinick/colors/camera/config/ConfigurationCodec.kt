@@ -133,6 +133,16 @@ object ConfigurationMigration {
             ).forEach { key -> migrated.putIfAbsent(key, defaults.getValue(key)) }
             migrated[ConfigurationCodec.Keys.SCHEMA_VERSION] = "3"
         }
+        if (version < 4) {
+            val paletteColors = migrated[ConfigurationCodec.Keys.PALETTE_COLORS]?.toIntOrNull()
+            if (paletteColors == LEGACY_DEFAULT_PALETTE_COLORS) {
+                migrated[ConfigurationCodec.Keys.PALETTE_COLORS] =
+                    AppConfiguration.defaults().paletteColors.toString()
+            }
+            migrated[ConfigurationCodec.Keys.SCHEMA_VERSION] = "4"
+        }
         return migrated
     }
+
+    private const val LEGACY_DEFAULT_PALETTE_COLORS = 6
 }

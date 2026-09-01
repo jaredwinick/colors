@@ -28,7 +28,7 @@ data class AppConfiguration(
     val exposureCompensationTenthsEv: Int = -3,
     val maxImageDimension: Int = 1_920,
     val jpegQuality: Int = 85,
-    val paletteColors: Int = 6,
+    val paletteColors: Int = 8,
     val paletteAnalysisDimension: Int = 180,
     val maxPendingCaptures: Int = 192,
     val maxUploadsPerCycle: Int = 4,
@@ -88,7 +88,7 @@ data class AppConfiguration(
     }
 
     companion object {
-        const val CURRENT_SCHEMA_VERSION = 3
+        const val CURRENT_SCHEMA_VERSION = 4
         private val DEVICE_ID_PATTERN = Regex("[A-Za-z0-9._-]{1,100}")
 
         fun defaults(): AppConfiguration = AppConfiguration()

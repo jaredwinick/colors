@@ -30,6 +30,13 @@ data class CaptureDiagnostic(
     val height: Int? = null,
     val processingDurationMs: Long? = null,
     val cameraSettings: String? = null,
+    val palette: String? = null,
+    val paletteSize: Int? = null,
+    val paletteAnalysisWidth: Int? = null,
+    val paletteAnalysisHeight: Int? = null,
+    val paletteIncludedPixels: Int? = null,
+    val paletteDurationMs: Long? = null,
+    val palettePeakPssKib: Long? = null,
     val manual: Boolean = false,
 ) {
     val alarmLatenessMs: Long
