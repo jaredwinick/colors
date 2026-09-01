@@ -667,6 +667,7 @@ class DurableCaptureStore internal constructor(
                 updatedAt = timestamp,
             ),
         )
+        true
     }.getOrElse {
         quarantine(directory, "SIDECAR_RECOVERY_FAILED", now.toString())
         false
