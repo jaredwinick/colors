@@ -61,6 +61,7 @@ class StationService : LifecycleService() {
     private val paletteExtractor = PaletteExtractor()
     private val processingExecutor = Executors.newSingleThreadExecutor()
     private val captureInProgress = AtomicBoolean(false)
+    private val outboxReady = AtomicBoolean(false)
     private val mainHandler = Handler(Looper.getMainLooper())
     private var stationWakeLock: PowerManager.WakeLock? = null
     private var precisionTimer: Runnable? = null
@@ -71,12 +72,22 @@ class StationService : LifecycleService() {
         diagnostics = DiagnosticStore(this)
         configurationStore = ConfigurationStore(this)
         captureRepository = ProductionCaptureRepository(this)
-        captureRepository.reconcile()
-        configurationStore.load().let { configuration ->
-            captureRepository.applyDeliveredRetention(
-                configuration.retentionDays,
-                configuration.retentionCount,
-            )
+        val startupConfiguration = configurationStore.load()
+        processingExecutor.execute {
+            runCatching {
+                captureRepository.migrateLegacy(startupConfiguration.deviceId)
+                captureRepository.reconcile()
+                captureRepository.applyDeliveredRetention(
+                    startupConfiguration.retentionDays,
+                    startupConfiguration.retentionCount,
+                )
+            }.onSuccess {
+                outboxReady.set(true)
+                mainHandler.post(::updateNotification)
+            }.onFailure {
+                preferences.setLastError("OUTBOX_INITIALIZATION_FAILED")
+                mainHandler.post(::updateNotification)
+            }
         }
         skyMasks = SkyMaskRepository(this)
         diagnostics.recoverInterrupted()
@@ -151,7 +162,11 @@ class StationService : LifecycleService() {
 
         val sessionId = if (manual) "manual" else preferences.sessionId
         val configuration = configurationStore.load()
-        val queueSummary = runCatching { captureRepository.summary() }.getOrNull()
+        val queueSummary = if (outboxReady.get()) {
+            runCatching { captureRepository.summary() }.getOrNull()
+        } else {
+            null
+        }
         val power = PowerSnapshotReader.read(this)
         val captureId = UUID.randomUUID().toString()
         val record = CaptureDiagnostic(
@@ -190,15 +205,21 @@ class StationService : LifecycleService() {
         }
 
         if (queueSummary == null) {
+            val code = if (outboxReady.get()) {
+                "OUTBOX_INSPECTION_FAILED"
+            } else {
+                "OUTBOX_INITIALIZING"
+            }
             diagnostics.complete(
                 record.copy(
                     completedAt = System.currentTimeMillis(),
                     result = "SKIPPED",
-                    errorCode = "OUTBOX_INSPECTION_FAILED",
+                    errorCode = code,
                 ),
             )
-            preferences.setLastError("OUTBOX_INSPECTION_FAILED")
+            preferences.setLastError(code)
             updateNotification()
+            stopIfManualOnly()
             return
         }
 
@@ -212,6 +233,7 @@ class StationService : LifecycleService() {
             )
             preferences.setLastError("OUTBOX_BACKPRESSURE")
             updateNotification()
+            stopIfManualOnly()
             return
         }
 

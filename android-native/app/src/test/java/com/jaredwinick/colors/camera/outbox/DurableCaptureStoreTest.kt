@@ -197,6 +197,36 @@ class DurableCaptureStoreTest {
         }
     }
 
+    @Test
+    fun `legacy image and metadata migrate only after a durable pending copy commits`() {
+        val captureId = UUID.randomUUID().toString()
+        val legacy = File(context.cacheDir, "legacy-${UUID.randomUUID()}").apply { mkdirs() }
+        val image = File(legacy, "$captureId.jpg").apply { writeBytes(jpeg(12)) }
+        val metadata = File(legacy, "$captureId.json").apply {
+            writeText(
+                """
+                {
+                  "capture_id":"$captureId",
+                  "captured_at":"2026-09-01T12:00:00Z",
+                  "mime_type":"image/jpeg",
+                  "bytes":${image.length()},
+                  "palette":$PALETTE
+                }
+                """.trimIndent(),
+            )
+        }
+
+        assertTrue(store.importLegacyCapture(image, metadata, DEVICE_ID))
+
+        assertFalse(image.exists())
+        assertFalse(metadata.exists())
+        val migrated = store.pendingOldestFirst().single()
+        assertEquals(captureId, migrated.captureId)
+        assertTrue(File(migrated.imagePath).isFile)
+        assertTrue(File(requireNotNull(migrated.metadataPath)).isFile)
+        legacy.deleteRecursively()
+    }
+
     private fun enqueue(captureId: String, capturedAt: String, bytes: ByteArray): DurableCaptureRecord {
         val payload = stageForEnqueue(captureId, capturedAt, bytes)
         return store.enqueue(store.normalizedTempFile(captureId), payload).record

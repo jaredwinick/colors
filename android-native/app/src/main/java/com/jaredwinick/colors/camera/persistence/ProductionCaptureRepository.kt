@@ -3,7 +3,6 @@ package com.jaredwinick.colors.camera.persistence
 import android.content.Context
 import android.os.Environment
 import com.jaredwinick.colors.camera.camera.AppliedCameraSettings
-import com.jaredwinick.colors.camera.config.ConfigurationStore
 import com.jaredwinick.colors.camera.outbox.DurableCapturePayload
 import com.jaredwinick.colors.camera.outbox.DurableCaptureStore
 import com.jaredwinick.colors.camera.outbox.OutboxSummary
@@ -76,19 +75,23 @@ data class ProductionCaptureMetadata(
 
 class ProductionCaptureRepository(context: Context) {
     private val outbox = DurableCaptureStore(context)
+    private val applicationContext = context.applicationContext
 
-    init {
-        val legacyRoot = context.getExternalFilesDir(Environment.DIRECTORY_PICTURES)
+    fun migrateLegacy(deviceId: String): Int {
+        var migrated = 0
+        val legacyRoot = applicationContext.getExternalFilesDir(Environment.DIRECTORY_PICTURES)
         val legacyImages = legacyRoot?.let { File(it, "captures") }
         val legacyMetadata = legacyRoot?.let { File(it, "capture-metadata") }
-        val deviceId = ConfigurationStore(context).load().deviceId
         legacyMetadata?.listFiles { file -> file.extension.equals("json", ignoreCase = true) }
             .orEmpty()
             .sortedBy(File::lastModified)
             .forEach { metadata ->
                 val image = File(requireNotNull(legacyImages), "${metadata.nameWithoutExtension}.jpg")
-                if (image.isFile) outbox.importLegacyCapture(image, metadata, deviceId)
+                if (image.isFile && outbox.importLegacyCapture(image, metadata, deviceId)) {
+                    migrated += 1
+                }
             }
+        return migrated
     }
 
     fun rawFile(captureId: String): File {
