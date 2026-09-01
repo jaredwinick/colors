@@ -33,7 +33,7 @@
     <string name="discard_mask_draft">Discard pending mask change</string>
     <string name="export_active_mask">Export active mask JSON</string>
     <string name="configuration_heading">Capture and delivery configuration</string>
-    <string name="configuration_description">These settings are validated and versioned. They will drive masking, palette processing, retry, and retention work in the next implementation issues.</string>
+    <string name="configuration_description">These validated, versioned settings drive capture, masking, palette processing, durable queue limits, retry policy, and delivered-file retention.</string>
     <string name="device_id_label">Device ID</string>
     <string name="front_camera_label">Use front camera (back camera is default)</string>
     <string name="continuous_auto_focus_label">Use continuous autofocus (infinity focus is default)</string>

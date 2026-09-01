@@ -37,6 +37,10 @@ data class CaptureDiagnostic(
     val paletteIncludedPixels: Int? = null,
     val paletteDurationMs: Long? = null,
     val palettePeakPssKib: Long? = null,
+    val outboxPending: Int? = null,
+    val outboxAttention: Int? = null,
+    val outboxOldestAgeMs: Long? = null,
+    val outboxStorageBytes: Long? = null,
     val manual: Boolean = false,
 ) {
     val alarmLatenessMs: Long

@@ -11,8 +11,8 @@ android {
         applicationId = "com.jaredwinick.colors.camera"
         minSdk = 29
         targetSdk = 29
-        versionCode = 7
-        versionName = "0.5.0"
+        versionCode = 8
+        versionName = "0.6.0"
 
         buildConfigField(
             "String",
@@ -73,4 +73,6 @@ dependencies {
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")
+    testImplementation("androidx.test:core:1.6.1")
+    testImplementation("org.robolectric:robolectric:4.14.1")
 }
