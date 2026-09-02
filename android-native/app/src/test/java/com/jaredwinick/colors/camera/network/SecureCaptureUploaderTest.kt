@@ -299,7 +299,7 @@ class SecureCaptureUploaderTest {
                 val headers = part.copyOfRange(0, headerEnd).toString(StandardCharsets.UTF_8)
                 val name = Regex("name=\"([^\"]+)\"").find(headers)?.groupValues?.get(1)
                     ?: return@mapNotNull null
-                val content = part.copyOfRange(headerEnd + separator.size, part.size - 2)
+                val content = part.copyOfRange(headerEnd + separator.size, part.size)
                 name to content
             }.toMap()
         }
@@ -322,6 +322,7 @@ class SecureCaptureUploaderTest {
             var start = 0
             var end = size
             while (start + 1 < end && this[start] == 13.toByte() && this[start + 1] == 10.toByte()) start += 2
+            while (end - start >= 2 && this[end - 2] == 13.toByte() && this[end - 1] == 10.toByte()) end -= 2
             if (end - start >= 2 && this[end - 2] == '-'.code.toByte() && this[end - 1] == '-'.code.toByte()) end -= 2
             while (end - start >= 2 && this[end - 2] == 13.toByte() && this[end - 1] == 10.toByte()) end -= 2
             return copyOfRange(start, end)
