@@ -435,7 +435,6 @@ class DurableCaptureStore internal constructor(
         DurableCapturePolicy.requireSafeErrorCode(errorCode)
         val existing = requireNotNull(database.record(captureId)) { "Pending capture is missing" }
         require(existing.state == DurableCaptureState.PENDING_UPLOAD)
-        require(validateImmutableFiles(existing)) { "Pending capture evidence is inconsistent" }
         val sourceDirectory = File(existing.imagePath).parentFile!!
         val destination = File(attentionDirectory, captureId)
         require(!destination.exists()) { "Attention destination already exists" }

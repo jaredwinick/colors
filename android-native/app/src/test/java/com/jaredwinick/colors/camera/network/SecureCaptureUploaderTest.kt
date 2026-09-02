@@ -1,6 +1,7 @@
 package com.jaredwinick.colors.camera.network
 
 import com.jaredwinick.colors.camera.outbox.DurableCaptureRecord
+import com.jaredwinick.colors.camera.outbox.DurableCapturePolicy
 import com.jaredwinick.colors.camera.outbox.DurableCaptureState
 import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
@@ -13,6 +14,7 @@ import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
+import java.io.File
 import java.net.InetSocketAddress
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.ExecutorService
@@ -42,7 +44,7 @@ class SecureCaptureUploaderTest {
             deviceId = "galaxy-s9-window",
             mimeType = "image/jpeg",
             byteCount = image.length(),
-            imageSha256 = "immutable-test-hash",
+            imageSha256 = DurableCapturePolicy.sha256(IMAGE_BYTES),
             paletteJson = PALETTE,
             processingMetadataJson = "{}",
             immutableFingerprint = "immutable-test-fingerprint",
@@ -188,6 +190,14 @@ class SecureCaptureUploaderTest {
         )
 
         responder = { exchange, _ ->
+            respond(exchange, 201, successJson(201).replace("false", "\"false\""))
+        }
+        assertEquals(
+            UploadAttemptResult.Retry("SUCCESS_REPLAY_FLAG_INVALID"),
+            uploader().upload(endpoint, TOKEN, record, 5),
+        )
+
+        responder = { exchange, _ ->
             respond(exchange, 201, successJson(201).replace("/api/images/", "https://other.invalid/"))
         }
         assertEquals(
@@ -203,6 +213,16 @@ class SecureCaptureUploaderTest {
         val result = uploader().upload(endpoint, TOKEN, record, 5)
 
         assertTrue(result is UploadAttemptResult.Retry)
+    }
+
+    @Test
+    fun `changed image evidence is rejected before any credential is sent`() {
+        File(record.imagePath).writeBytes(byteArrayOf(1, 2, 3, 4, 5, 6, 7))
+
+        val result = uploader().upload(endpoint, TOKEN, record, 5)
+
+        assertEquals(UploadAttemptResult.Attention("UPLOAD_EVIDENCE_INVALID"), result)
+        assertTrue(requests.isEmpty())
     }
 
     @Test

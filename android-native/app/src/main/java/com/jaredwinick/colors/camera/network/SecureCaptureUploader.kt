@@ -1,6 +1,7 @@
 package com.jaredwinick.colors.camera.network
 
 import com.jaredwinick.colors.camera.outbox.DurableCaptureRecord
+import com.jaredwinick.colors.camera.outbox.DurableCapturePolicy
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.io.File
@@ -56,6 +57,9 @@ class SecureCaptureUploader(
             require(record.byteCount in 1..MAX_IMAGE_BYTES) { "Capture exceeds upload size policy" }
             require(image.isFile && image.length() == record.byteCount) {
                 "Queued image does not match immutable metadata"
+            }
+            require(DurableCapturePolicy.sha256(image.readBytes()) == record.imageSha256) {
+                "Queued image hash does not match immutable metadata"
             }
             requireNotNull(record.paletteJson) { "Queued palette is missing" }
             MultipartEncoder.encode(record, image, boundaryFactory())
@@ -123,19 +127,17 @@ class SecureCaptureUploader(
             .getOrElse { return UploadAttemptResult.Retry("MALFORMED_SUCCESS_RESPONSE") }
         val capture = json.optJSONObject("capture")
             ?: return UploadAttemptResult.Retry("MALFORMED_SUCCESS_RESPONSE")
-        if (capture.optString("id") != expectedCaptureId) {
+        val responseCaptureId = capture.opt("id")
+        if (responseCaptureId !is String || responseCaptureId != expectedCaptureId) {
             return UploadAttemptResult.Retry("SUCCESS_CAPTURE_ID_MISMATCH")
         }
-        if (!json.has("idempotentReplay") || json.isNull("idempotentReplay")) {
-            return UploadAttemptResult.Retry("SUCCESS_REPLAY_FLAG_MISSING")
-        }
-        val replay = runCatching { json.getBoolean("idempotentReplay") }
-            .getOrElse { return UploadAttemptResult.Retry("SUCCESS_REPLAY_FLAG_INVALID") }
+        val replay = json.opt("idempotentReplay")
+        if (replay !is Boolean) return UploadAttemptResult.Retry("SUCCESS_REPLAY_FLAG_INVALID")
         if ((status == HttpURLConnection.HTTP_OK) != replay) {
             return UploadAttemptResult.Retry("SUCCESS_STATUS_REPLAY_MISMATCH")
         }
-        val imageUrl = capture.optString("imageUrl")
-        if (!imageUrl.startsWith("/api/images/")) {
+        val imageUrl = capture.opt("imageUrl")
+        if (imageUrl !is String || !imageUrl.startsWith("/api/images/")) {
             return UploadAttemptResult.Retry("SUCCESS_IMAGE_ROUTE_INVALID")
         }
         return UploadAttemptResult.Delivered(
