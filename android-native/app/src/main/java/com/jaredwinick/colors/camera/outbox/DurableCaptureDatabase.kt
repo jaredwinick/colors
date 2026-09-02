@@ -117,6 +117,34 @@ internal class DurableCaptureDatabase(
     ).use { cursor -> cursor.moveToFirst(); cursor.getInt(0) }
 
     @Synchronized
+    fun summary(): OutboxSummary = readableDatabase.rawQuery(
+        """
+        SELECT
+            COALESCE(SUM(CASE WHEN state = 'STAGED' THEN 1 ELSE 0 END), 0),
+            COALESCE(SUM(CASE WHEN state = 'PROCESSING' THEN 1 ELSE 0 END), 0),
+            COALESCE(SUM(CASE WHEN state = 'PENDING_UPLOAD' THEN 1 ELSE 0 END), 0),
+            COALESCE(SUM(CASE WHEN state = 'DELIVERED' THEN 1 ELSE 0 END), 0),
+            COALESCE(SUM(CASE WHEN state = 'ATTENTION_REQUIRED' THEN 1 ELSE 0 END), 0),
+            (SELECT COUNT(*) FROM $CONFLICTS),
+            MIN(CASE WHEN state = 'PENDING_UPLOAD' THEN captured_at END)
+        FROM $CAPTURES
+        """.trimIndent(),
+        null,
+    ).use { cursor ->
+        check(cursor.moveToFirst()) { "Could not inspect durable capture queue" }
+        OutboxSummary(
+            staged = cursor.getInt(0),
+            processing = cursor.getInt(1),
+            pending = cursor.getInt(2),
+            delivered = cursor.getInt(3),
+            attentionRequired = cursor.getInt(4),
+            conflicts = cursor.getInt(5),
+            oldestPendingAt = if (cursor.isNull(6)) null else cursor.getString(6),
+            storageBytes = 0,
+        )
+    }
+
+    @Synchronized
     fun delete(captureId: String) {
         writableDatabase.delete(CAPTURES, "capture_id = ?", arrayOf(captureId))
     }

@@ -11,8 +11,8 @@ android {
         applicationId = "com.jaredwinick.colors.camera"
         minSdk = 29
         targetSdk = 29
-        versionCode = 8
-        versionName = "0.6.0"
+        versionCode = 9
+        versionName = "0.6.1"
 
         buildConfigField(
             "String",

@@ -92,7 +92,10 @@ class DurableCaptureStoreTest {
             listOf(tieFirstId, tieSecondId, laterId),
             store.pendingOldestFirst().map(DurableCaptureRecord::captureId),
         )
-        assertEquals(3, store.summary().pending)
+        val summary = store.summary()
+        assertEquals(3, summary.pending)
+        assertEquals("2026-09-01T12:00:00Z", summary.oldestPendingAt)
+        assertTrue(summary.storageBytes > 0)
 
         store.recordRetry(
             tieFirstId,

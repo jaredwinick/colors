@@ -449,19 +449,7 @@ class DurableCaptureStore internal constructor(
 
     @Synchronized
     fun summary(): OutboxSummary {
-        val records = database.allRecords()
-        fun count(state: DurableCaptureState) = records.count { it.state == state }
-        val oldest = DurableCapturePolicy.pendingOldestFirst(records).firstOrNull()?.capturedAt
-        return OutboxSummary(
-            staged = count(DurableCaptureState.STAGED),
-            processing = count(DurableCaptureState.PROCESSING),
-            pending = count(DurableCaptureState.PENDING_UPLOAD),
-            delivered = count(DurableCaptureState.DELIVERED),
-            attentionRequired = count(DurableCaptureState.ATTENTION_REQUIRED),
-            conflicts = database.conflictCount(),
-            oldestPendingAt = oldest,
-            storageBytes = root.walkTopDown().filter(File::isFile).sumOf(File::length),
-        )
+        return database.summary().copy(storageBytes = bestEffortStorageBytes(root))
     }
 
     @Synchronized
@@ -819,6 +807,14 @@ class DurableCaptureStore internal constructor(
 
     private fun File.isDescendantOf(parent: File): Boolean =
         canonicalFile.toPath().startsWith(parent.canonicalFile.toPath())
+
+    private fun bestEffortStorageBytes(file: File): Long = runCatching {
+        when {
+            file.isFile -> file.length().coerceAtLeast(0)
+            file.isDirectory -> file.listFiles().orEmpty().sumOf(::bestEffortStorageBytes)
+            else -> 0
+        }
+    }.getOrDefault(0)
 
     private fun JSONObject.optNullableString(key: String): String? =
         if (!has(key) || isNull(key)) null else getString(key)

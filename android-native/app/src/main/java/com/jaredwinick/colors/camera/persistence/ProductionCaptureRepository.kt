@@ -74,8 +74,8 @@ data class ProductionCaptureMetadata(
 }
 
 class ProductionCaptureRepository(context: Context) {
-    private val outbox = DurableCaptureStore(context)
     private val applicationContext = context.applicationContext
+    private val outbox = sharedOutbox(applicationContext)
 
     fun migrateLegacy(deviceId: String): Int {
         var migrated = 0
@@ -207,5 +207,15 @@ class ProductionCaptureRepository(context: Context) {
                 put("peak_pss_kib", statistics.peakPssKib)
             }
         } ?: JSONObject.NULL)
+    }
+
+    companion object {
+        @Volatile
+        private var productionOutbox: DurableCaptureStore? = null
+
+        private fun sharedOutbox(context: Context): DurableCaptureStore =
+            productionOutbox ?: synchronized(this) {
+                productionOutbox ?: DurableCaptureStore(context).also { productionOutbox = it }
+            }
     }
 }
