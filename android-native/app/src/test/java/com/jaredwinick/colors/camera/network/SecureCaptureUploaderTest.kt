@@ -3,8 +3,6 @@ package com.jaredwinick.colors.camera.network
 import com.jaredwinick.colors.camera.outbox.DurableCaptureRecord
 import com.jaredwinick.colors.camera.outbox.DurableCapturePolicy
 import com.jaredwinick.colors.camera.outbox.DurableCaptureState
-import com.sun.net.httpserver.HttpExchange
-import com.sun.net.httpserver.HttpServer
 import org.junit.After
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
@@ -14,24 +12,27 @@ import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
+import java.io.BufferedInputStream
+import java.io.ByteArrayOutputStream
 import java.io.File
-import java.net.InetSocketAddress
+import java.net.ServerSocket
+import java.net.Socket
+import java.net.SocketException
 import java.nio.charset.StandardCharsets
-import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 
 class SecureCaptureUploaderTest {
     @get:Rule
     val temporary = TemporaryFolder()
 
-    private lateinit var server: HttpServer
-    private lateinit var serverExecutor: ExecutorService
+    private lateinit var server: TestHttpServer
     private lateinit var endpoint: String
     private lateinit var record: DurableCaptureRecord
     private val requests = mutableListOf<RecordedRequest>()
     @Volatile
-    private var responder: (HttpExchange, RecordedRequest) -> Unit = { exchange, _ ->
-        respond(exchange, 201, successJson(201))
+    private var responder: (Socket, RecordedRequest) -> Unit = { socket, _ ->
+        respond(socket, 201, successJson(201))
     }
 
     @Before
@@ -59,27 +60,16 @@ class SecureCaptureUploaderTest {
             createdAt = "2026-09-01T12:00:01Z",
             updatedAt = "2026-09-01T12:00:01Z",
         )
-        serverExecutor = Executors.newCachedThreadPool()
-        server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0).apply {
-            executor = serverExecutor
-            createContext("/api/ingest") { exchange ->
-                val request = RecordedRequest(
-                    authorization = exchange.requestHeaders.getFirst("Authorization"),
-                    contentType = exchange.requestHeaders.getFirst("Content-Type"),
-                    body = exchange.requestBody.use { it.readBytes() },
-                )
-                synchronized(requests) { requests += request }
-                responder(exchange, request)
-            }
-            start()
+        server = TestHttpServer { socket, request ->
+            synchronized(requests) { requests += request }
+            responder(socket, request)
         }
-        endpoint = "http://127.0.0.1:${server.address.port}/api/ingest"
+        endpoint = "http://127.0.0.1:${server.port}/api/ingest"
     }
 
     @After
     fun tearDown() {
-        server.stop(0)
-        serverExecutor.shutdownNow()
+        server.close()
     }
 
     @Test
@@ -104,7 +94,7 @@ class SecureCaptureUploaderTest {
 
     @Test
     fun `exact 200 replay is accepted without changing immutable request fields`() {
-        responder = { exchange, _ -> respond(exchange, 200, successJson(200)) }
+        responder = { socket, _ -> respond(socket, 200, successJson(200)) }
 
         val result = uploader().upload(endpoint, TOKEN, record, 5)
 
@@ -125,7 +115,7 @@ class SecureCaptureUploaderTest {
             415 to "REQUEST_REJECTED",
             422 to "REQUEST_REJECTED",
         ).forEach { (status, code) ->
-            responder = { exchange, _ -> respond(exchange, status, "{\"error\":\"not logged\"}") }
+            responder = { socket, _ -> respond(socket, status, "{\"error\":\"not logged\"}") }
             assertEquals(
                 UploadAttemptResult.Attention(code),
                 uploader().upload(endpoint, TOKEN, record, 5),
@@ -135,7 +125,7 @@ class SecureCaptureUploaderTest {
 
     @Test
     fun `server failures are retryable and response bodies are not retained`() {
-        responder = { exchange, _ -> respond(exchange, 503, "secret server diagnostic") }
+        responder = { socket, _ -> respond(socket, 503, "secret server diagnostic") }
 
         val result = uploader().upload(endpoint, TOKEN, record, 5)
 
@@ -145,9 +135,8 @@ class SecureCaptureUploaderTest {
 
     @Test
     fun `redirect is rejected without forwarding credentials`() {
-        responder = { exchange, _ ->
-            exchange.responseHeaders.add("Location", "$endpoint/redirected")
-            respond(exchange, 307, "")
+        responder = { socket, _ ->
+            respond(socket, 307, "", mapOf("Location" to "$endpoint/redirected"))
         }
 
         val result = uploader().upload(endpoint, TOKEN, record, 5)
@@ -158,15 +147,15 @@ class SecureCaptureUploaderTest {
 
     @Test
     fun `oversized or malformed success responses remain retryable`() {
-        responder = { exchange, _ ->
-            respond(exchange, 201, "x".repeat(SecureCaptureUploader.MAX_SUCCESS_RESPONSE_BYTES + 1))
+        responder = { socket, _ ->
+            respond(socket, 201, "x".repeat(SecureCaptureUploader.MAX_SUCCESS_RESPONSE_BYTES + 1))
         }
         assertEquals(
             UploadAttemptResult.Retry("SUCCESS_RESPONSE_TOO_LARGE"),
             uploader().upload(endpoint, TOKEN, record, 5),
         )
 
-        responder = { exchange, _ -> respond(exchange, 201, "not-json") }
+        responder = { socket, _ -> respond(socket, 201, "not-json") }
         assertEquals(
             UploadAttemptResult.Retry("MALFORMED_SUCCESS_RESPONSE"),
             uploader().upload(endpoint, TOKEN, record, 5),
@@ -175,30 +164,30 @@ class SecureCaptureUploaderTest {
 
     @Test
     fun `mismatched capture status replay and image route are not confirmed`() {
-        responder = { exchange, _ ->
-            respond(exchange, 201, successJson(201).replace(CAPTURE_ID, OTHER_CAPTURE_ID))
+        responder = { socket, _ ->
+            respond(socket, 201, successJson(201).replace(CAPTURE_ID, OTHER_CAPTURE_ID))
         }
         assertEquals(
             UploadAttemptResult.Retry("SUCCESS_CAPTURE_ID_MISMATCH"),
             uploader().upload(endpoint, TOKEN, record, 5),
         )
 
-        responder = { exchange, _ -> respond(exchange, 201, successJson(200)) }
+        responder = { socket, _ -> respond(socket, 201, successJson(200)) }
         assertEquals(
             UploadAttemptResult.Retry("SUCCESS_STATUS_REPLAY_MISMATCH"),
             uploader().upload(endpoint, TOKEN, record, 5),
         )
 
-        responder = { exchange, _ ->
-            respond(exchange, 201, successJson(201).replace("false", "\"false\""))
+        responder = { socket, _ ->
+            respond(socket, 201, successJson(201).replace("false", "\"false\""))
         }
         assertEquals(
             UploadAttemptResult.Retry("SUCCESS_REPLAY_FLAG_INVALID"),
             uploader().upload(endpoint, TOKEN, record, 5),
         )
 
-        responder = { exchange, _ ->
-            respond(exchange, 201, successJson(201).replace("/api/images/", "https://other.invalid/"))
+        responder = { socket, _ ->
+            respond(socket, 201, successJson(201).replace("/api/images/", "https://other.invalid/"))
         }
         assertEquals(
             UploadAttemptResult.Retry("SUCCESS_IMAGE_ROUTE_INVALID"),
@@ -208,7 +197,7 @@ class SecureCaptureUploaderTest {
 
     @Test
     fun `disconnect is retryable`() {
-        responder = { exchange, _ -> exchange.close() }
+        responder = { socket, _ -> socket.close() }
 
         val result = uploader().upload(endpoint, TOKEN, record, 5)
 
@@ -228,13 +217,13 @@ class SecureCaptureUploaderTest {
     @Test
     fun `timeout after commit can retry the same capture and accept replay`() {
         var calls = 0
-        responder = { exchange, _ ->
+        responder = { socket, _ ->
             calls += 1
             if (calls == 1) {
                 Thread.sleep(1_300)
-                runCatching { respond(exchange, 201, successJson(201)) }
+                runCatching { respond(socket, 201, successJson(201)) }
             } else {
-                respond(exchange, 200, successJson(200))
+                respond(socket, 200, successJson(200))
             }
         }
 
@@ -257,12 +246,6 @@ class SecureCaptureUploaderTest {
 
     private fun imageRoute() = "/api/images/2026/09/01/$CAPTURE_ID.jpg"
 
-    private data class RecordedRequest(
-        val authorization: String?,
-        val contentType: String?,
-        val body: ByteArray,
-    )
-
     companion object {
         private const val CAPTURE_ID = "71fc4bc3-9ec7-4389-bf2c-ba09813844c0"
         private const val OTHER_CAPTURE_ID = "6fa459ea-ee8a-4ca4-894e-db77e160355e"
@@ -271,10 +254,38 @@ class SecureCaptureUploaderTest {
             "[{\"hex\":\"#335577\",\"weight\":0.5},{\"hex\":\"#7799BB\",\"weight\":0.3},{\"hex\":\"#DDEEFF\",\"weight\":0.2}]"
         private val IMAGE_BYTES = byteArrayOf(0xff.toByte(), 0xd8.toByte(), 1, 2, 3, 0xff.toByte(), 0xd9.toByte())
 
-        private fun respond(exchange: HttpExchange, status: Int, body: String) {
+        private fun respond(
+            socket: Socket,
+            status: Int,
+            body: String,
+            headers: Map<String, String> = emptyMap(),
+        ) {
             val bytes = body.toByteArray(StandardCharsets.UTF_8)
-            exchange.sendResponseHeaders(status, bytes.size.toLong())
-            exchange.responseBody.use { it.write(bytes) }
+            socket.getOutputStream().buffered().use { output ->
+                output.write("HTTP/1.1 $status ${reason(status)}\r\n".toByteArray())
+                headers.forEach { (name, value) ->
+                    output.write("$name: $value\r\n".toByteArray())
+                }
+                output.write("Content-Type: application/json\r\n".toByteArray())
+                output.write("Content-Length: ${bytes.size}\r\n".toByteArray())
+                output.write("Connection: close\r\n\r\n".toByteArray())
+                output.write(bytes)
+            }
+        }
+
+        private fun reason(status: Int): String = when (status) {
+            200 -> "OK"
+            201 -> "Created"
+            307 -> "Temporary Redirect"
+            400 -> "Bad Request"
+            401 -> "Unauthorized"
+            403 -> "Forbidden"
+            409 -> "Conflict"
+            413 -> "Payload Too Large"
+            415 -> "Unsupported Media Type"
+            422 -> "Unprocessable Content"
+            503 -> "Service Unavailable"
+            else -> "Response"
         }
 
         private fun parseMultipart(body: ByteArray, boundary: String): Map<String, ByteArray> {
@@ -324,5 +335,79 @@ class SecureCaptureUploaderTest {
             }
             return -1
         }
+    }
+}
+
+private data class RecordedRequest(
+    val authorization: String?,
+    val contentType: String?,
+    val body: ByteArray,
+)
+
+private class TestHttpServer(
+    private val handler: (Socket, RecordedRequest) -> Unit,
+) : AutoCloseable {
+    private val running = AtomicBoolean(true)
+    private val server = ServerSocket(0, 16, java.net.InetAddress.getByName("127.0.0.1"))
+    private val executor = Executors.newCachedThreadPool()
+    val port: Int get() = server.localPort
+
+    init {
+        executor.execute {
+            while (running.get()) {
+                val socket = try {
+                    server.accept()
+                } catch (_: SocketException) {
+                    break
+                }
+                executor.execute {
+                    runCatching {
+                        socket.soTimeout = 5_000
+                        handler(socket, readRequest(socket))
+                    }
+                    runCatching { socket.close() }
+                }
+            }
+        }
+    }
+
+    override fun close() {
+        running.set(false)
+        server.close()
+        executor.shutdownNow()
+    }
+
+    private fun readRequest(socket: Socket): RecordedRequest {
+        val input = BufferedInputStream(socket.getInputStream())
+        val headerBytes = ByteArrayOutputStream()
+        var matched = 0
+        val delimiter = byteArrayOf(13, 10, 13, 10)
+        while (headerBytes.size() <= 65_536 && matched < delimiter.size) {
+            val value = input.read()
+            require(value >= 0) { "Connection ended before HTTP headers" }
+            headerBytes.write(value)
+            matched = if (value.toByte() == delimiter[matched]) matched + 1 else 0
+        }
+        require(matched == delimiter.size) { "HTTP headers exceeded limit" }
+        val lines = String(headerBytes.toByteArray(), StandardCharsets.ISO_8859_1).split("\r\n")
+        val headers = lines.drop(1).mapNotNull { line ->
+            val separator = line.indexOf(':')
+            if (separator <= 0) null else {
+                line.substring(0, separator).trim().lowercase() to line.substring(separator + 1).trim()
+            }
+        }.toMap()
+        val length = requireNotNull(headers["content-length"]?.toIntOrNull())
+        val body = ByteArray(length)
+        var offset = 0
+        while (offset < body.size) {
+            val read = input.read(body, offset, body.size - offset)
+            require(read >= 0) { "Connection ended before HTTP body" }
+            offset += read
+        }
+        return RecordedRequest(
+            authorization = headers["authorization"],
+            contentType = headers["content-type"],
+            body = body,
+        )
     }
 }
