@@ -83,6 +83,7 @@ class MainActivity : AppCompatActivity() {
         findViewById<Button>(R.id.captureNow).setOnClickListener {
             withCameraPermission(::captureNow)
         }
+        findViewById<Button>(R.id.uploadPending).setOnClickListener { uploadPending() }
         findViewById<Button>(R.id.exportReport).setOnClickListener { shareReport() }
         findViewById<Button>(R.id.shareLatestCapture).setOnClickListener { shareLatestCapture() }
         findViewById<Button>(R.id.batterySettings).setOnClickListener {
@@ -176,6 +177,13 @@ class MainActivity : AppCompatActivity() {
             .setAction(StationService.ACTION_CAPTURE_TEST)
         ContextCompat.startForegroundService(this, intent)
         toast("Camera test requested")
+    }
+
+    private fun uploadPending() {
+        val intent = Intent(this, StationService::class.java)
+            .setAction(StationService.ACTION_UPLOAD_PENDING)
+        ContextCompat.startForegroundService(this, intent)
+        toast("Pending upload pass requested")
     }
 
     private fun refresh() {

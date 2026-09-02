@@ -362,6 +362,9 @@ class DurableCaptureStore internal constructor(
         DurableCapturePolicy.pendingOldestFirst(database.allRecords())
 
     @Synchronized
+    fun record(captureId: String): DurableCaptureRecord? = database.record(captureId)
+
+    @Synchronized
     fun pendingEligible(now: Instant, limit: Int): List<DurableCaptureRecord> {
         require(limit >= 0)
         return pendingOldestFirst().filter { record ->
@@ -415,6 +418,36 @@ class DurableCaptureStore internal constructor(
             nextEligibleRetryAt = null,
             deliveredAt = timestamp,
             deliveryConfirmationJson = confirmationJson,
+            updatedAt = timestamp,
+        )
+        updateSidecar(updated.copy(metadataPath = existing.metadataPath))
+        move(sourceDirectory, destination)
+        database.upsert(updated)
+        return updated
+    }
+
+    @Synchronized
+    fun markDeliveryAttention(
+        captureId: String,
+        errorCode: String,
+        detectedAt: Instant = Instant.now(),
+    ): DurableCaptureRecord {
+        DurableCapturePolicy.requireSafeErrorCode(errorCode)
+        val existing = requireNotNull(database.record(captureId)) { "Pending capture is missing" }
+        require(existing.state == DurableCaptureState.PENDING_UPLOAD)
+        require(validateImmutableFiles(existing)) { "Pending capture evidence is inconsistent" }
+        val sourceDirectory = File(existing.imagePath).parentFile!!
+        val destination = File(attentionDirectory, captureId)
+        require(!destination.exists()) { "Attention destination already exists" }
+        val timestamp = detectedAt.toString()
+        val updated = existing.copy(
+            state = DurableCaptureState.ATTENTION_REQUIRED,
+            imagePath = File(destination, IMAGE_NAME).absolutePath,
+            metadataPath = File(destination, METADATA_NAME).absolutePath,
+            attemptCount = existing.attemptCount + 1,
+            lastAttemptAt = timestamp,
+            lastErrorCode = errorCode,
+            nextEligibleRetryAt = null,
             updatedAt = timestamp,
         )
         updateSidecar(updated.copy(metadataPath = existing.metadataPath))
@@ -505,7 +538,11 @@ class DurableCaptureStore internal constructor(
                 report = report.copy(quarantined = report.quarantined + 1)
             }
         }
-        listOf(pendingDirectory to DurableCaptureState.PENDING_UPLOAD, deliveredDirectory to DurableCaptureState.DELIVERED)
+        listOf(
+            pendingDirectory to DurableCaptureState.PENDING_UPLOAD,
+            deliveredDirectory to DurableCaptureState.DELIVERED,
+            attentionDirectory to DurableCaptureState.ATTENTION_REQUIRED,
+        )
             .forEach { (directory, expectedState) ->
                 directory.listFiles(File::isDirectory).orEmpty().forEach capture@{ captureDirectory ->
                     val captureId = captureDirectory.name
@@ -522,11 +559,19 @@ class DurableCaptureStore internal constructor(
                     }.getOrNull()
                     if (
                         expectedState == DurableCaptureState.PENDING_UPLOAD &&
-                        sidecarState == DurableCaptureState.DELIVERED
+                        sidecarState in setOf(
+                            DurableCaptureState.DELIVERED,
+                            DurableCaptureState.ATTENTION_REQUIRED,
+                        )
                     ) {
-                        val destination = File(deliveredDirectory, captureId)
+                        val destinationRoot = if (sidecarState == DurableCaptureState.DELIVERED) {
+                            deliveredDirectory
+                        } else {
+                            attentionDirectory
+                        }
+                        val destination = File(destinationRoot, captureId)
                         if (!destination.exists()) move(captureDirectory, destination)
-                        val recovered = recoverSidecar(destination, DurableCaptureState.DELIVERED, now)
+                        val recovered = recoverSidecar(destination, requireNotNull(sidecarState), now)
                         report = if (recovered) {
                             report.copy(recoveredPending = report.recoveredPending + 1)
                         } else {

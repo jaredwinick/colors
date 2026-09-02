@@ -7,16 +7,16 @@ Android 10 (API 29).
 
 The native app currently provides the production foundation, proven capture
 scheduler, production JPEG normalization, fixed sky-mask calibration,
-deterministic weighted palette extraction, and a transactional durable capture
-outbox. Secure Cloudflare upload and full operations screens are delivered by
-the subsequent roadmap issues. The Termux client in `android/` remains the
-rollback path until the native pipeline passes its production soak test.
+deterministic weighted palette extraction, a transactional durable capture
+outbox, and secure idempotent delivery to the Cloudflare Worker. The Termux
+client in `android/` remains the rollback path until the native pipeline passes
+its production soak test.
 
 ## Production identity and architecture
 
 - Application name: **Colors Camera**
 - Application ID and namespace: `com.jaredwinick.colors.camera`
-- Version: `0.6.1` (`versionCode` 9)
+- Version: `0.7.0` (`versionCode` 10)
 - Capture files: app-private `files/durable-captures`
 - Diagnostics and configuration: app-private storage
 - Ingest token: encrypted with a non-exportable Android Keystore AES-GCM key
@@ -48,7 +48,7 @@ Code is split by responsibility:
 | `mask` | Schema-v1 validation, rasterization, durable calibration, and previews |
 | `palette` | Masked-sky sampling, deterministic weighted median cut, and previews |
 | `outbox` | SQLite capture state machine, immutable files, reconciliation, and retention |
-| `network` | Reserved for secure Worker upload work in Issue #35 |
+| `network` | Strict multipart transport, response validation, retry policy, and delivery cycles |
 
 The scheduler preserves the behavior proven in Issue #27: a foreground
 service holds a partial wake lock in precision mode, an in-process timer owns
@@ -217,10 +217,21 @@ station status displays staged, processing, pending, delivered, and attention
 counts, oldest pending age, and local storage use. The same queue snapshot is
 included in timing CSV diagnostics.
 
-Issue #35 will consume the oldest eligible pending records and update retry or
-delivery fields. Delivered retention applies only to server-confirmed records,
-using the configured age and count limits; it never removes pending, staged, or
-attention evidence.
+After every successful local commit, the app consumes the oldest eligible
+pending records up to the configured per-cycle budget. **Upload pending captures
+now** runs the same bounded pass without taking a photograph. This is useful for
+recovery and production smoke tests. If the queue is already at its limit, the
+app attempts delivery before recording `OUTBOX_BACKPRESSURE`, preventing a full
+queue from becoming permanently stuck.
+
+Retries preserve the exact UUID, JPEG bytes, capture time, device ID, and
+palette. Network failures, timeouts, retryable HTTP responses, and malformed
+success responses receive exponential backoff from 60 seconds to one hour by
+default. Only a validated `201` with `idempotentReplay: false` or `200` with
+`idempotentReplay: true` moves evidence to `DELIVERED`. Authentication,
+validation, redirect, and `409` idempotency-conflict responses move the complete
+immutable package to `ATTENTION_REQUIRED`; they are never silently deleted.
+Delivered retention applies only to server-confirmed records.
 
 The release endpoint is compiled into the app:
 
@@ -237,6 +248,25 @@ never redisplays or logs it; the screen reports only `configured` or
 `not configured`. Clearing application data or uninstalling the app removes
 the encrypted value. Reinstalling on a different device requires entering the
 token again.
+
+The uploader sends the credential only in the `Authorization: Bearer` header,
+rejects redirects, caps JPEGs at 12 MiB and successful response bodies at
+64 KiB, and never stores response bodies or sensitive headers. Release builds
+require the compiled HTTPS endpoint. Debug HTTP overrides remain restricted to
+loopback hosts.
+
+### Production upload smoke test
+
+1. In **Production settings**, confirm the effective endpoint and save the
+   Cloudflare ingest token. The token field clears and status becomes
+   `configured`.
+2. Note the current pending count. To create one item if necessary, use
+   **Capture test now** and wait for local processing.
+3. Set **Maximum uploads per cycle** to `1`, then tap **Upload pending captures
+   now**. The oldest pending count should fall by one and delivered should rise
+   by one.
+4. Confirm exactly one matching D1 row and R2 object, then load the response's
+   `/api/images/...` route. Restore the upload budget afterward.
 
 ## Build and CI
 
@@ -361,6 +391,10 @@ Common error codes include `CAMERA_PERMISSION_MISSING`, `CAMERA_BIND_FAILED`,
 codes include `OUTBOX_INITIALIZING`, `OUTBOX_INITIALIZATION_FAILED`,
 `OUTBOX_BACKPRESSURE`, `OUTBOX_INSPECTION_FAILED`,
 `PROCESS_INTERRUPTED_RECOVERABLE`, and `IMMUTABLE_EVIDENCE_INCONSISTENT`.
+Delivery codes include `INGEST_TOKEN_UNAVAILABLE`, `REQUEST_TIMEOUT`,
+`NETWORK_REQUEST_FAILED`, `SERVER_RETRYABLE`, `AUTHORIZATION_REJECTED`,
+`REQUEST_REJECTED`, `REDIRECT_REJECTED`, `IDEMPOTENCY_CONFLICT`,
+`UPLOAD_RETRY_THRESHOLD`, and `UPLOAD_ATTENTION_REQUIRED`.
 
 ## Stop or uninstall
 

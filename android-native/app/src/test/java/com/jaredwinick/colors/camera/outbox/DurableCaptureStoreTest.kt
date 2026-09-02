@@ -12,6 +12,7 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.json.JSONObject
 import java.io.File
 import java.time.Instant
 import java.util.UUID
@@ -140,6 +141,34 @@ class DurableCaptureStoreTest {
         assertEquals(1, store.summary().pending)
         assertEquals(pending, store.pendingOldestFirst().single().captureId)
         assertEquals(1, store.summary().delivered)
+    }
+
+    @Test
+    fun `delivery conflict moves immutable evidence to durable attention`() {
+        val captureId = UUID.randomUUID().toString()
+        val pending = enqueue(captureId, "2026-09-01T12:00:00Z", jpeg(14))
+
+        val attention = store.markDeliveryAttention(
+            captureId,
+            "IDEMPOTENCY_CONFLICT",
+            Instant.parse("2026-09-01T12:05:00Z"),
+        )
+
+        assertEquals(DurableCaptureState.ATTENTION_REQUIRED, attention.state)
+        assertEquals(1, attention.attemptCount)
+        assertEquals("IDEMPOTENCY_CONFLICT", attention.lastErrorCode)
+        assertFalse(File(pending.imagePath).exists())
+        assertTrue(File(attention.imagePath).isFile)
+        assertEquals(
+            "ATTENTION_REQUIRED",
+            JSONObject(File(requireNotNull(attention.metadataPath)).readText()).getString("state"),
+        )
+        store.close()
+        store = DurableCaptureStore(context, rootName, databaseName)
+        store.reconcile(Instant.parse("2026-09-01T12:06:00Z"))
+        assertEquals(1, store.summary().attentionRequired)
+        assertEquals(0, store.summary().pending)
+        assertTrue(File(requireNotNull(store.record(captureId)).imagePath).isFile)
     }
 
     @Test

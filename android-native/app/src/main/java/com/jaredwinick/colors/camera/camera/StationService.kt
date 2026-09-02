@@ -25,12 +25,19 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleService
+import com.jaredwinick.colors.camera.BuildConfig
 import com.jaredwinick.colors.camera.R
 import com.jaredwinick.colors.camera.config.CameraLens
 import com.jaredwinick.colors.camera.config.AppConfiguration
 import com.jaredwinick.colors.camera.config.ConfigurationStore
+import com.jaredwinick.colors.camera.config.EndpointPolicy
+import com.jaredwinick.colors.camera.config.SecureTokenStore
 import com.jaredwinick.colors.camera.diagnostics.CaptureDiagnostic
 import com.jaredwinick.colors.camera.mask.SkyMaskRepository
+import com.jaredwinick.colors.camera.network.CaptureDeliveryCoordinator
+import com.jaredwinick.colors.camera.network.DeliveryCycleSummary
+import com.jaredwinick.colors.camera.network.SecureCaptureUploader
+import com.jaredwinick.colors.camera.network.deliverySettings
 import com.jaredwinick.colors.camera.palette.PaletteExtractionException
 import com.jaredwinick.colors.camera.palette.PaletteExtractionResult
 import com.jaredwinick.colors.camera.palette.PaletteExtractor
@@ -56,11 +63,13 @@ class StationService : LifecycleService() {
     private lateinit var diagnostics: DiagnosticStore
     private lateinit var configurationStore: ConfigurationStore
     private lateinit var captureRepository: ProductionCaptureRepository
+    private lateinit var deliveryCoordinator: CaptureDeliveryCoordinator
     private lateinit var skyMasks: SkyMaskRepository
     private val imageNormalizer = ImageNormalizer()
     private val paletteExtractor = PaletteExtractor()
     private val processingExecutor = Executors.newSingleThreadExecutor()
     private val captureInProgress = AtomicBoolean(false)
+    private val uploadInProgress = AtomicBoolean(false)
     private val outboxReady = AtomicBoolean(false)
     private val mainHandler = Handler(Looper.getMainLooper())
     private var stationWakeLock: PowerManager.WakeLock? = null
@@ -72,6 +81,12 @@ class StationService : LifecycleService() {
         diagnostics = DiagnosticStore(this)
         configurationStore = ConfigurationStore(this)
         captureRepository = ProductionCaptureRepository(this)
+        val tokenStore = SecureTokenStore(this)
+        deliveryCoordinator = CaptureDeliveryCoordinator(
+            captures = captureRepository,
+            transport = SecureCaptureUploader(),
+            tokenReader = tokenStore::read,
+        )
         val startupConfiguration = configurationStore.load()
         processingExecutor.execute {
             runCatching {
@@ -125,6 +140,7 @@ class StationService : LifecycleService() {
                 triggerReceivedAt = System.currentTimeMillis(),
                 slotAlreadyClaimed = false,
             )
+            ACTION_UPLOAD_PENDING -> uploadPendingOnly()
             null -> if (preferences.enabled) restoreSchedule() else stopSelf()
         }
         return Service.START_STICKY
@@ -224,16 +240,7 @@ class StationService : LifecycleService() {
         }
 
         if (queueSummary.pending >= configuration.maxPendingCaptures) {
-            diagnostics.complete(
-                record.copy(
-                    completedAt = System.currentTimeMillis(),
-                    result = "SKIPPED",
-                    errorCode = "OUTBOX_BACKPRESSURE",
-                ),
-            )
-            preferences.setLastError("OUTBOX_BACKPRESSURE")
-            updateNotification()
-            stopIfManualOnly()
+            drainBeforeBackpressure(record, configuration)
             return
         }
 
@@ -453,13 +460,21 @@ class StationService : LifecycleService() {
                     paletteStatistics = paletteResult?.statistics,
                     paletteErrorCode = paletteErrorCode,
                 )
-                val finalFile = captureRepository.commit(normalizedTemp, metadata)
+                captureRepository.commit(normalizedTemp, metadata)
+                val delivery = if (paletteErrorCode == null) {
+                    drainOutbox(configuration)
+                } else {
+                    null
+                }
+                val finalFile = captureRepository.record(captureId)?.imagePath?.let(::File)
+                    ?: throw IllegalStateException("Committed capture disappeared from the outbox")
                 ProcessedCapture(
                     image = image,
                     finalFile = finalFile,
                     palette = paletteResult,
                     paletteErrorCode = paletteErrorCode,
                     processingDurationMs = processingDurationMs,
+                    delivery = delivery,
                 )
             }
             rawFile.delete()
@@ -499,6 +514,7 @@ class StationService : LifecycleService() {
                         )
                         preferences.setLastCapture(capturedAt)
                         completed.paletteErrorCode?.let(preferences::setLastError)
+                        completed.delivery?.let(::applyDeliveryStatus)
                         captureInProgress.set(false)
                         updateNotification()
                         stopIfManualOnly()
@@ -530,7 +546,127 @@ class StationService : LifecycleService() {
         val palette: PaletteExtractionResult?,
         val paletteErrorCode: String?,
         val processingDurationMs: Long,
+        val delivery: DeliveryCycleSummary?,
     )
+
+    private fun drainBeforeBackpressure(record: CaptureDiagnostic, configuration: AppConfiguration) {
+        if (!captureInProgress.compareAndSet(false, true)) {
+            diagnostics.complete(
+                record.copy(
+                    completedAt = System.currentTimeMillis(),
+                    result = "SKIPPED",
+                    errorCode = "OVERLAP_PREVENTED",
+                ),
+            )
+            preferences.setLastError("OVERLAP_PREVENTED")
+            return
+        }
+        diagnostics.begin(record)
+        processingExecutor.execute {
+            val delivery = drainOutbox(configuration)
+            mainHandler.post {
+                diagnostics.complete(
+                    record.copy(
+                        completedAt = System.currentTimeMillis(),
+                        result = "SKIPPED",
+                        errorCode = "OUTBOX_BACKPRESSURE",
+                    ),
+                )
+                applyDeliveryStatus(delivery, "OUTBOX_BACKPRESSURE")
+                captureInProgress.set(false)
+                updateNotification()
+                stopIfManualOnly()
+            }
+        }
+    }
+
+    private fun uploadPendingOnly() {
+        if (!outboxReady.get()) {
+            preferences.setLastError("OUTBOX_INITIALIZING")
+            updateNotification()
+            stopIfManualOnly()
+            return
+        }
+        if (!captureInProgress.compareAndSet(false, true)) {
+            preferences.setLastError("OVERLAP_PREVENTED")
+            updateNotification()
+            return
+        }
+        val configuration = configurationStore.load()
+        uploadInProgress.set(true)
+        updateNotification()
+        processingExecutor.execute {
+            val delivery = drainOutbox(configuration)
+            mainHandler.post {
+                applyDeliveryStatus(delivery)
+                captureInProgress.set(false)
+                updateNotification()
+                stopIfManualOnly()
+            }
+        }
+    }
+
+    private fun drainOutbox(configuration: AppConfiguration): DeliveryCycleSummary {
+        uploadInProgress.set(true)
+        val wakeLock = acquireUploadWakeLock(configuration)
+        return try {
+            val endpoint = runCatching {
+                EndpointPolicy.resolve(
+                    BuildConfig.INGEST_ENDPOINT,
+                    configuration.debugEndpointOverride,
+                    BuildConfig.ALLOW_ENDPOINT_OVERRIDE,
+                )
+            }.getOrElse {
+                return deliveryFailure("INGEST_ENDPOINT_INVALID")
+            }
+            runCatching {
+                deliveryCoordinator.drain(endpoint, configuration.deliverySettings())
+            }.getOrElse {
+                deliveryFailure("OUTBOX_DELIVERY_FAILED")
+            }.also {
+                runCatching {
+                    captureRepository.applyDeliveredRetention(
+                        configuration.retentionDays,
+                        configuration.retentionCount,
+                    )
+                }
+            }
+        } finally {
+            releaseWakeLock(wakeLock)
+            uploadInProgress.set(false)
+        }
+    }
+
+    private fun deliveryFailure(code: String): DeliveryCycleSummary {
+        val pending = runCatching { captureRepository.summary().pending }.getOrDefault(0)
+        return DeliveryCycleSummary(0, 0, 0, 0, pending, pending, true, code)
+    }
+
+    private fun applyDeliveryStatus(
+        delivery: DeliveryCycleSummary,
+        fallbackError: String? = null,
+    ) {
+        val code = when {
+            delivery.cycleErrorCode != null -> delivery.cycleErrorCode
+            delivery.attentionRequired > 0 -> "UPLOAD_ATTENTION_REQUIRED"
+            delivery.notificationRequired -> "UPLOAD_RETRY_THRESHOLD"
+            else -> fallbackError
+        }
+        if (code == null) preferences.clearLastError() else preferences.setLastError(code)
+    }
+
+    private fun acquireUploadWakeLock(configuration: AppConfiguration): PowerManager.WakeLock {
+        val requested = configuration.requestTimeoutSeconds.toLong() *
+            configuration.maxUploadsPerCycle.toLong() * 1_000L + 30_000L
+        val timeout = requested.coerceIn(60_000L, MAX_UPLOAD_WAKE_LOCK_MS)
+        return getSystemService(PowerManager::class.java).newWakeLock(
+            PowerManager.PARTIAL_WAKE_LOCK,
+            "$packageName:upload",
+        ).apply {
+            setReferenceCounted(false)
+            acquire(timeout)
+        }
+    }
 
     private fun finishCapture(record: CaptureDiagnostic, errorCode: String) {
         val completed = System.currentTimeMillis()
@@ -679,6 +815,7 @@ class StationService : LifecycleService() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         val content = when {
+            uploadInProgress.get() -> "Uploading queued sky images"
             captureInProgress.get() -> "Capturing a scheduled sky image"
             preferences.enabled && preferences.precisionMode ->
                 "Precision next: ${UtcSchedule.format(preferences.nextCaptureAt)}"
@@ -720,6 +857,7 @@ class StationService : LifecycleService() {
         const val ACTION_RESTORE = "com.jaredwinick.colors.camera.RESTORE"
         const val ACTION_CAPTURE = "com.jaredwinick.colors.camera.CAPTURE"
         const val ACTION_CAPTURE_TEST = "com.jaredwinick.colors.camera.CAPTURE_TEST"
+        const val ACTION_UPLOAD_PENDING = "com.jaredwinick.colors.camera.UPLOAD_PENDING"
         const val EXTRA_SCHEDULED_FOR = "scheduled_for"
         const val EXTRA_TRIGGER_RECEIVED_AT = "trigger_received_at"
 
@@ -727,5 +865,6 @@ class StationService : LifecycleService() {
         private const val NOTIFICATION_ID = 2701
         private const val CAPTURE_TIMEOUT_MS = 90_000L
         private const val WAKE_LOCK_TIMEOUT_MS = 120_000L
+        private const val MAX_UPLOAD_WAKE_LOCK_MS = 10 * 60_000L
     }
 }

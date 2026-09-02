@@ -6,6 +6,7 @@
     <string name="start_station">Start station</string>
     <string name="stop_station">Stop station</string>
     <string name="capture_now">Capture test now</string>
+    <string name="upload_pending">Upload pending captures now</string>
     <string name="export_report">Share timing report</string>
     <string name="share_latest_capture">Share latest production image</string>
     <string name="status_heading">Status</string>
