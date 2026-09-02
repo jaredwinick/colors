@@ -337,8 +337,7 @@ Termux:API exemptions while Termux remains the rollback path.
 ## Start, test, and stop
 
 1. Open **Production settings**, review the defaults, and save the Cloudflare
-   ingest token. Upload is implemented in later issues, but provisioning the
-   credential now verifies secure persistence.
+   ingest token. The token field clears and its status becomes `configured`.
 2. Return to the station screen, enter `15`, and keep precision mode selected.
 3. Tap **Capture test now** and grant camera access. Confirm **Last capture**
    changes and a JPEG is saved.
