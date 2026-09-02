@@ -16,7 +16,7 @@ rollback path until the native pipeline passes its production soak test.
 
 - Application name: **Colors Camera**
 - Application ID and namespace: `com.jaredwinick.colors.camera`
-- Version: `0.6.0` (`versionCode` 8)
+- Version: `0.6.1` (`versionCode` 9)
 - Capture files: app-private `files/durable-captures`
 - Diagnostics and configuration: app-private storage
 - Ingest token: encrypted with a non-exportable Android Keystore AES-GCM key
