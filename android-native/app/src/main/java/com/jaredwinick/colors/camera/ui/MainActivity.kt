@@ -182,6 +182,7 @@ class MainActivity : AppCompatActivity() {
         val cameraGranted = ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) ==
             PackageManager.PERMISSION_GRANTED
         val power = PowerSnapshotReader.read(this)
+        val queue = runCatching { captureRepository.summary() }.getOrNull()
         statusText.text = buildString {
             appendLine("Station: ${if (preferences.enabled) "RUNNING" else "STOPPED"}")
             appendLine("Mode: ${if (preferences.precisionMode) "PRECISION EXPERIMENT" else "ALARM ONLY"}")
@@ -194,6 +195,23 @@ class MainActivity : AppCompatActivity() {
             appendLine("Interval: ${preferences.intervalMinutes} minutes")
             appendLine("Next capture: ${UtcSchedule.format(preferences.nextCaptureAt)}")
             appendLine("Last capture: ${UtcSchedule.format(preferences.lastCaptureAt)}")
+            if (queue != null) {
+                appendLine(
+                    "Queue staged / processing / pending: " +
+                        "${queue.staged} / ${queue.processing} / ${queue.pending}",
+                )
+                appendLine(
+                    "Delivered / attention: ${queue.delivered} / ${queue.totalAttention}",
+                )
+                appendLine(
+                    "Oldest pending: ${queue.oldestPendingAgeMillis()?.let(::formatAge) ?: "—"}",
+                )
+                appendLine(
+                    "Capture storage: ${String.format(Locale.US, "%.2f MiB", queue.storageBytes / 1_048_576.0)}",
+                )
+            } else {
+                appendLine("Durable queue: unavailable")
+            }
             append("Last error: ${preferences.lastError ?: "—"}")
         }
 
@@ -272,6 +290,18 @@ class MainActivity : AppCompatActivity() {
         val configuration = configurationStore.load()
         intervalInput.setText(String.format(Locale.US, "%d", configuration.intervalMinutes))
         precisionModeInput.isChecked = configuration.precisionMode
+    }
+
+    private fun formatAge(milliseconds: Long): String {
+        val totalMinutes = milliseconds / 60_000
+        val days = totalMinutes / (24 * 60)
+        val hours = totalMinutes / 60 % 24
+        val minutes = totalMinutes % 60
+        return when {
+            days > 0 -> "${days}d ${hours}h"
+            hours > 0 -> "${hours}h ${minutes}m"
+            else -> "${minutes}m"
+        }
     }
 
     companion object {

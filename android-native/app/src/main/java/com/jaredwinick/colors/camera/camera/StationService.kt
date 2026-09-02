@@ -61,6 +61,7 @@ class StationService : LifecycleService() {
     private val paletteExtractor = PaletteExtractor()
     private val processingExecutor = Executors.newSingleThreadExecutor()
     private val captureInProgress = AtomicBoolean(false)
+    private val outboxReady = AtomicBoolean(false)
     private val mainHandler = Handler(Looper.getMainLooper())
     private var stationWakeLock: PowerManager.WakeLock? = null
     private var precisionTimer: Runnable? = null
@@ -71,6 +72,23 @@ class StationService : LifecycleService() {
         diagnostics = DiagnosticStore(this)
         configurationStore = ConfigurationStore(this)
         captureRepository = ProductionCaptureRepository(this)
+        val startupConfiguration = configurationStore.load()
+        processingExecutor.execute {
+            runCatching {
+                captureRepository.migrateLegacy(startupConfiguration.deviceId)
+                captureRepository.reconcile()
+                captureRepository.applyDeliveredRetention(
+                    startupConfiguration.retentionDays,
+                    startupConfiguration.retentionCount,
+                )
+            }.onSuccess {
+                outboxReady.set(true)
+                mainHandler.post(::updateNotification)
+            }.onFailure {
+                preferences.setLastError("OUTBOX_INITIALIZATION_FAILED")
+                mainHandler.post(::updateNotification)
+            }
+        }
         skyMasks = SkyMaskRepository(this)
         diagnostics.recoverInterrupted()
         createNotificationChannel()
@@ -143,6 +161,12 @@ class StationService : LifecycleService() {
         if (!manual && !preferences.enabled) return
 
         val sessionId = if (manual) "manual" else preferences.sessionId
+        val configuration = configurationStore.load()
+        val queueSummary = if (outboxReady.get()) {
+            runCatching { captureRepository.summary() }.getOrNull()
+        } else {
+            null
+        }
         val power = PowerSnapshotReader.read(this)
         val captureId = UUID.randomUUID().toString()
         val record = CaptureDiagnostic(
@@ -162,6 +186,10 @@ class StationService : LifecycleService() {
             powerSaveMode = power.powerSaveMode,
             batteryOptimizationExempt = power.batteryOptimizationExempt,
             stationWakeLockHeld = stationWakeLock?.isHeld == true,
+            outboxPending = queueSummary?.pending,
+            outboxAttention = queueSummary?.totalAttention,
+            outboxOldestAgeMs = queueSummary?.oldestPendingAgeMillis(),
+            outboxStorageBytes = queueSummary?.storageBytes,
             manual = manual,
         )
 
@@ -173,6 +201,39 @@ class StationService : LifecycleService() {
                     errorCode = "DUPLICATE_SLOT",
                 ),
             )
+            return
+        }
+
+        if (queueSummary == null) {
+            val code = if (outboxReady.get()) {
+                "OUTBOX_INSPECTION_FAILED"
+            } else {
+                "OUTBOX_INITIALIZING"
+            }
+            diagnostics.complete(
+                record.copy(
+                    completedAt = System.currentTimeMillis(),
+                    result = "SKIPPED",
+                    errorCode = code,
+                ),
+            )
+            preferences.setLastError(code)
+            updateNotification()
+            stopIfManualOnly()
+            return
+        }
+
+        if (queueSummary.pending >= configuration.maxPendingCaptures) {
+            diagnostics.complete(
+                record.copy(
+                    completedAt = System.currentTimeMillis(),
+                    result = "SKIPPED",
+                    errorCode = "OUTBOX_BACKPRESSURE",
+                ),
+            )
+            preferences.setLastError("OUTBOX_BACKPRESSURE")
+            updateNotification()
+            stopIfManualOnly()
             return
         }
 
@@ -225,7 +286,6 @@ class StationService : LifecycleService() {
                 val provider = providerFuture.get()
                 cameraProvider = provider
                 provider.unbindAll()
-                val configuration = configurationStore.load()
                 val selector = when (configuration.cameraLens) {
                     CameraLens.BACK -> CameraSelector.DEFAULT_BACK_CAMERA
                     CameraLens.FRONT -> CameraSelector.DEFAULT_FRONT_CAMERA
@@ -258,11 +318,33 @@ class StationService : LifecycleService() {
                     object : ImageCapture.OnImageSavedCallback {
                         override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
                             if (finished.get()) {
-                                captureRepository.abandon(captureId)
+                                val lateCapturedAt = System.currentTimeMillis()
+                                runCatching {
+                                    captureRepository.recordStaged(
+                                        captureId,
+                                        Instant.ofEpochMilli(lateCapturedAt).toString(),
+                                        configuration.deviceId,
+                                    )
+                                    captureRepository.markAttention(captureId, "CAPTURE_COMPLETED_AFTER_TIMEOUT")
+                                }
                                 return
                             }
                             cameraProvider?.unbindAll()
                             val capturedAt = System.currentTimeMillis()
+                            runCatching {
+                                captureRepository.recordStaged(
+                                    captureId,
+                                    Instant.ofEpochMilli(capturedAt).toString(),
+                                    configuration.deviceId,
+                                )
+                            }.onFailure {
+                                if (finished.compareAndSet(false, true)) {
+                                    mainHandler.removeCallbacks(watchdog)
+                                    releaseWakeLock(wakeLock)
+                                    finishCapture(activeRecord, "CAPTURE_STAGE_FAILED")
+                                }
+                                return
+                            }
                             processCapturedImage(
                                 captureId = captureId,
                                 rawFile = outputFile,
@@ -313,6 +395,16 @@ class StationService : LifecycleService() {
         watchdog: Runnable,
         wakeLock: PowerManager.WakeLock,
     ) {
+        runCatching { captureRepository.markProcessing(captureId) }
+            .onFailure {
+                captureRepository.markAttention(captureId, "PROCESSING_STATE_FAILED")
+                if (finished.compareAndSet(false, true)) {
+                    mainHandler.removeCallbacks(watchdog)
+                    releaseWakeLock(wakeLock)
+                    finishCapture(record, "PROCESSING_STATE_FAILED")
+                }
+                return
+            }
         processingExecutor.execute {
             val processingStartedAt = SystemClock.elapsedRealtime()
             val normalizedTemp = captureRepository.normalizedTempFile(captureId)
@@ -346,6 +438,7 @@ class StationService : LifecycleService() {
                 val metadata = ProductionCaptureMetadata(
                     captureId = captureId,
                     capturedAt = Instant.ofEpochMilli(capturedAt).toString(),
+                    deviceId = configuration.deviceId,
                     sourceDimensions = image.sourceDimensions,
                     finalDimensions = image.finalDimensions,
                     byteCount = image.byteCount,

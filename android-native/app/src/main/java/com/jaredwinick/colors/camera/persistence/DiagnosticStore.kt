@@ -122,6 +122,10 @@ class DiagnosticStore(context: Context) {
         putNullable("palette_included_pixels", paletteIncludedPixels)
         putNullable("palette_duration_ms", paletteDurationMs)
         putNullable("palette_peak_pss_kib", palettePeakPssKib)
+        putNullable("outbox_pending", outboxPending)
+        putNullable("outbox_attention", outboxAttention)
+        putNullable("outbox_oldest_age_ms", outboxOldestAgeMs)
+        putNullable("outbox_storage_bytes", outboxStorageBytes)
         put("manual", manual)
     }
 
@@ -166,6 +170,10 @@ class DiagnosticStore(context: Context) {
         paletteIncludedPixels = json.nullableInt("palette_included_pixels"),
         paletteDurationMs = json.nullableLong("palette_duration_ms"),
         palettePeakPssKib = json.nullableLong("palette_peak_pss_kib"),
+        outboxPending = json.nullableInt("outbox_pending"),
+        outboxAttention = json.nullableInt("outbox_attention"),
+        outboxOldestAgeMs = json.nullableLong("outbox_oldest_age_ms"),
+        outboxStorageBytes = json.nullableLong("outbox_storage_bytes"),
         manual = json.optBoolean("manual"),
     )
 

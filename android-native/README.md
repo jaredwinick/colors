@@ -6,17 +6,18 @@ through Issues #30-#38. The app targets the dedicated Samsung Galaxy S9+ running
 Android 10 (API 29).
 
 The native app currently provides the production foundation, proven capture
-scheduler, production JPEG normalization, fixed sky-mask calibration, and
-deterministic weighted palette extraction. Durable upload and full operations
-screens are delivered by the subsequent roadmap issues. The Termux client in `android/` remains the
+scheduler, production JPEG normalization, fixed sky-mask calibration,
+deterministic weighted palette extraction, and a transactional durable capture
+outbox. Secure Cloudflare upload and full operations screens are delivered by
+the subsequent roadmap issues. The Termux client in `android/` remains the
 rollback path until the native pipeline passes its production soak test.
 
 ## Production identity and architecture
 
 - Application name: **Colors Camera**
 - Application ID and namespace: `com.jaredwinick.colors.camera`
-- Version: `0.5.0` (`versionCode` 7)
-- Capture files: app-specific external `Pictures/captures`
+- Version: `0.6.1` (`versionCode` 9)
+- Capture files: app-private `files/durable-captures`
 - Diagnostics and configuration: app-private storage
 - Ingest token: encrypted with a non-exportable Android Keystore AES-GCM key
 - Notification channel ID: `camera_station_v1`, low-priority **Camera station**
@@ -46,7 +47,8 @@ Code is split by responsibility:
 | `processing` | JPEG normalization |
 | `mask` | Schema-v1 validation, rasterization, durable calibration, and previews |
 | `palette` | Masked-sky sampling, deterministic weighted median cut, and previews |
-| `network` | Reserved for durable Worker upload work in Issue #34 |
+| `outbox` | SQLite capture state machine, immutable files, reconciliation, and retention |
+| `network` | Reserved for secure Worker upload work in Issue #35 |
 
 The scheduler preserves the behavior proven in Issue #27: a foreground
 service holds a partial wake lock in precision mode, an in-process timer owns
@@ -119,12 +121,11 @@ bitmap, reduced to a longest edge of at most 1920 pixels, and encoded at quality
 EXIF orientation and JPEG markers, and rejects files over the Worker's 12 MB
 limit.
 
-The normalized JPEG remains a complete, unmasked view. It is staged under
-`Pictures/capture-work`, then committed to `Pictures/captures`; its versioned
-metadata is committed last under `Pictures/capture-metadata`. A metadata file is
-therefore the completion marker and can never point to a partial JPEG. Startup
-removes temporary work and new-format orphan images while leaving legacy POC
-captures alone.
+The normalized JPEG remains a complete, unmasked view. Raw and normalized work,
+pending packages, delivered copies, and quarantined evidence are stored under
+the internal durable-capture root. A synced sidecar and JPEG package is the file
+completion marker; the transactional outbox row is committed only after that
+package is atomically installed.
 
 ## Fixed sky mask and recalibration
 
@@ -187,6 +188,39 @@ the cyan/red mask overlay and weighted color swatches; the exact settings cannot
 be saved until that visible result is explicitly confirmed. The default is
 eight colors, although a low-color scene can validly return fewer after
 duplicate representatives are merged, provided at least three remain.
+
+## Durable capture store and outbox
+
+Every successful CameraX callback is registered in an app-private SQLite
+database before image processing begins. Captures move through explicit
+`STAGED`, `PROCESSING`, `PENDING_UPLOAD`, `DELIVERED`, and
+`ATTENTION_REQUIRED` states. The database stores the immutable UUID, actual UTC
+capture time, device ID, JPEG size/type/SHA-256, palette, processing metadata,
+retry fields, delivery confirmation, and local paths. Pending JPEGs and
+sidecars live under app-private `files/durable-captures`; they are never exposed
+as general shared-storage files.
+
+The pending sidecar is written and synced beside a copied JPEG in a temporary
+directory, then the directory is atomically renamed before the database state
+is committed. Startup reconciliation handles either side of that boundary:
+complete orphan packages are recovered into SQLite, interrupted processing is
+returned to a recoverable staged state, and missing, changed, conflicting, or
+otherwise inconsistent evidence is marked for attention or moved to quarantine
+without silent deletion. Existing version-0.5 capture/metadata pairs are
+migrated into the durable store on upgrade; originals are removed only after a
+safe internal copy is committed.
+
+Pending records are ordered by capture time and UUID. When the configurable
+pending limit (192 by default) is reached, new manual and scheduled captures
+pause with `OUTBOX_BACKPRESSURE`; queued work is retained indefinitely. The
+station status displays staged, processing, pending, delivered, and attention
+counts, oldest pending age, and local storage use. The same queue snapshot is
+included in timing CSV diagnostics.
+
+Issue #35 will consume the oldest eligible pending records and update retry or
+delivery fields. Delivered retention applies only to server-confirmed records,
+using the configured age and count limits; it never removes pending, staged, or
+attention evidence.
 
 The release endpoint is compiled into the app:
 
@@ -323,7 +357,10 @@ Common error codes include `CAMERA_PERMISSION_MISSING`, `CAMERA_BIND_FAILED`,
 `PRECISION_REQUIRES_EXTERNAL_POWER`, and
 `PRECISION_REQUIRES_BATTERY_EXEMPTION`. Palette failures use safe codes such as
 `PALETTE_IMAGE_DECODE_FAILED`, `PALETTE_MASK_INVALID`,
-`PALETTE_QUANTIZATION_INVALID`, and `PALETTE_EXTRACTION_FAILED`.
+`PALETTE_QUANTIZATION_INVALID`, and `PALETTE_EXTRACTION_FAILED`. Durable-store
+codes include `OUTBOX_INITIALIZING`, `OUTBOX_INITIALIZATION_FAILED`,
+`OUTBOX_BACKPRESSURE`, `OUTBOX_INSPECTION_FAILED`,
+`PROCESS_INTERRUPTED_RECOVERABLE`, and `IMMUTABLE_EVIDENCE_INCONSISTENT`.
 
 ## Stop or uninstall
 
