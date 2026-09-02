@@ -63,9 +63,12 @@ jobs:
           apk="app/build/outputs/apk/release/app-release.apk"
           apksigner="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
           test -n "$apksigner"
-          actual="$($apksigner verify --print-certs "$apk" \
-            | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')"
+          certificate_output="$($apksigner verify --print-certs "$apk")"
+          printf '%s\n' "$certificate_output"
+          actual="$(printf '%s\n' "$certificate_output" \
+            | awk -F': ' '/certificate SHA-256 digest:/ { print tolower($2); exit }')"
           expected="419106390ce9828fbcf9f4702b859cfd0ecd048c0ecd4fb56d81321bab1fb7f8"
+          test -n "$actual"
           test "$actual" = "$expected"
 
       - name: Upload signed release APK
