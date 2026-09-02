@@ -285,36 +285,51 @@ On Windows:
 gradlew.bat testDebugUnitTest assembleDebug lintDebug
 ```
 
-The APK is written to `app/build/outputs/apk/debug/app-debug.apk`. The
-`android-native.yml` GitHub Actions workflow runs the same command and publishes
-the APK as the `colors-camera-debug` artifact. This is the reproducible build
-path when Android Studio and the Android SDK are not installed locally.
+The local debug APK is written to `app/build/outputs/apk/debug/app-debug.apk`.
+The `android-native.yml` GitHub Actions workflow runs the tests and lint against
+a release build, then publishes the permanently signed APK as the
+`colors-camera-release` artifact. This is the reproducible deployment path when
+Android Studio and the Android SDK are not installed locally.
 
 ## Signing and upgrade-safe sideloads
 
 Android permits an in-place upgrade only when the application ID and signing
-certificate match the installed app. A local debug build normally keeps a
-stable key in the builder's Gradle home, but GitHub-hosted runners do not retain
-their generated debug key between workflow runs. An APK from a different CI run
-may therefore require uninstalling the prior CI APK, which deletes local app
-data.
+certificate match the installed app. GitHub-hosted runners do not retain their
+generated debug keys, so their ordinary debug APKs cannot safely serve as
+upgradable deployments.
 
-For upgrade-safe production sideloads, keep one private release keystore outside
-the repository and sign every APK with that same key. Never commit the keystore
-or its passwords. A maintainer can either configure Android Studio's signed APK
-wizard or add a local Gradle signing configuration sourced from environment
-variables. Before upgrading:
+The Actions workflow instead decodes one encrypted repository-secret keystore
+into the runner's temporary directory and supplies its passwords to Gradle only
+through environment variables. The build fails if any signing input is missing
+or if the resulting certificate does not have this expected SHA-256 fingerprint:
+
+```text
+41:91:06:39:0C:E9:82:8F:BC:F9:F4:70:2B:85:9C:FD:0E:CD:04:8C:0E:CD:4F:B5:6D:81:32:1B:AB:1F:B7:F8
+```
+
+The private recovery copy is stored locally under the ignored `work/signing`
+directory and must be backed up securely. GitHub stores the build copy as these
+write-only repository secrets:
+
+- `ANDROID_SIGNING_KEYSTORE_BASE64`
+- `ANDROID_SIGNING_STORE_PASSWORD`
+- `ANDROID_SIGNING_KEY_ALIAS`
+- `ANDROID_SIGNING_KEY_PASSWORD`
+
+Never commit the keystore or its passwords. Before upgrading:
 
 1. Stop station mode and confirm there is no capture in progress.
 2. Export any timing diagnostics needed for troubleshooting.
-3. Build and sign the new APK with the same private release key.
-4. Transfer it with Quick Share and open it; Android should offer **Update**.
+3. Download `colors-camera-release` from the successful Actions run.
+4. Transfer its APK with Quick Share and open it; Android should offer
+   **Update**.
 5. Open Colors Camera, confirm the saved settings and credential status, then
    start the station and run one test capture.
 
-If Android offers only uninstall/reinstall or reports a signature mismatch,
-stop. Obtain an APK signed with the original key unless deleting the app's
-configuration, token, diagnostics, and captures is acceptable.
+The first transition from an older CI debug APK requires one uninstall because
+that runner's temporary signing key is unrecoverable. After installing the
+stable release APK, stop if any later build offers only uninstall/reinstall or
+reports a signature mismatch; verify its certificate before deleting app data.
 
 ## Galaxy S9+ setup
 

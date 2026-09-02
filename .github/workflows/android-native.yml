@@ -31,17 +31,46 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
+      - name: Prepare stable release signing
+        env:
+          ANDROID_SIGNING_KEYSTORE_BASE64: ${{ secrets.ANDROID_SIGNING_KEYSTORE_BASE64 }}
+        run: |
+          set -euo pipefail
+          test -n "$ANDROID_SIGNING_KEYSTORE_BASE64"
+          mkdir -p "$RUNNER_TEMP/colors-signing"
+          printf '%s' "$ANDROID_SIGNING_KEYSTORE_BASE64" \
+            | base64 --decode \
+            > "$RUNNER_TEMP/colors-signing/colors-camera-release.p12"
+          chmod 600 "$RUNNER_TEMP/colors-signing/colors-camera-release.p12"
+
       - name: Verify bundled sky mask matches the reference calibration
         working-directory: android-native
         run: cmp ../android/sky-mask.json app/src/main/res/raw/sky_mask.json
 
-      - name: Test and assemble debug APK
+      - name: Test and assemble signed release APK
         working-directory: android-native
-        run: ./gradlew testDebugUnitTest assembleDebug lintDebug --stacktrace
+        env:
+          COLORS_SIGNING_STORE_FILE: ${{ runner.temp }}/colors-signing/colors-camera-release.p12
+          COLORS_SIGNING_STORE_PASSWORD: ${{ secrets.ANDROID_SIGNING_STORE_PASSWORD }}
+          COLORS_SIGNING_KEY_ALIAS: ${{ secrets.ANDROID_SIGNING_KEY_ALIAS }}
+          COLORS_SIGNING_KEY_PASSWORD: ${{ secrets.ANDROID_SIGNING_KEY_PASSWORD }}
+        run: ./gradlew testDebugUnitTest assembleRelease lintRelease --stacktrace
 
-      - name: Upload debug APK
+      - name: Verify stable signing certificate
+        working-directory: android-native
+        run: |
+          set -euo pipefail
+          apk="app/build/outputs/apk/release/app-release.apk"
+          apksigner="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          test -n "$apksigner"
+          actual="$($apksigner verify --print-certs "$apk" \
+            | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')"
+          expected="419106390ce9828fbcf9f4702b859cfd0ecd048c0ecd4fb56d81321bab1fb7f8"
+          test "$actual" = "$expected"
+
+      - name: Upload signed release APK
         uses: actions/upload-artifact@v4
         with:
-          name: colors-camera-debug
-          path: android-native/app/build/outputs/apk/debug/app-debug.apk
+          name: colors-camera-release
+          path: android-native/app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error

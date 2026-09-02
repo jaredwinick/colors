@@ -3,6 +3,17 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+val releaseSigningStoreFile = providers.environmentVariable("COLORS_SIGNING_STORE_FILE").orNull
+val releaseSigningStorePassword = providers.environmentVariable("COLORS_SIGNING_STORE_PASSWORD").orNull
+val releaseSigningKeyAlias = providers.environmentVariable("COLORS_SIGNING_KEY_ALIAS").orNull
+val releaseSigningKeyPassword = providers.environmentVariable("COLORS_SIGNING_KEY_PASSWORD").orNull
+val releaseSigningConfigured = listOf(
+    releaseSigningStoreFile,
+    releaseSigningStorePassword,
+    releaseSigningKeyAlias,
+    releaseSigningKeyPassword,
+).all { !it.isNullOrBlank() }
+
 android {
     namespace = "com.jaredwinick.colors.camera"
     compileSdk = 36
@@ -23,12 +34,27 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        if (releaseSigningConfigured) {
+            create("release") {
+                storeFile = file(requireNotNull(releaseSigningStoreFile))
+                storePassword = releaseSigningStorePassword
+                keyAlias = releaseSigningKeyAlias
+                keyPassword = releaseSigningKeyPassword
+                storeType = "PKCS12"
+            }
+        }
+    }
+
     buildTypes {
         debug {
             buildConfigField("boolean", "ALLOW_ENDPOINT_OVERRIDE", "true")
         }
         release {
             isMinifyEnabled = false
+            if (releaseSigningConfigured) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             buildConfigField("boolean", "ALLOW_ENDPOINT_OVERRIDE", "false")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
@@ -58,6 +84,14 @@ android {
         // This is a dedicated, sideloaded Android 10 station. Google Play
         // publication is explicitly out of scope.
         disable += "ExpiredTargetSdkVersion"
+    }
+}
+
+tasks.matching { it.name == "assembleRelease" || it.name == "bundleRelease" }.configureEach {
+    doFirst {
+        check(releaseSigningConfigured) {
+            "Release signing requires all COLORS_SIGNING_* environment variables."
+        }
     }
 }
 
