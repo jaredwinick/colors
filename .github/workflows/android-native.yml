@@ -66,7 +66,7 @@ jobs:
           certificate_output="$($apksigner verify --print-certs "$apk")"
           printf '%s\n' "$certificate_output"
           actual="$(printf '%s\n' "$certificate_output" \
-            | awk -F': ' '/certificate SHA-256 digest:/ { print tolower($2); exit }')"
+            | awk -F': ' '/certificate SHA-256 digest:/ { print tolower($NF); exit }')"
           expected="419106390ce9828fbcf9f4702b859cfd0ecd048c0ecd4fb56d81321bab1fb7f8"
           test -n "$actual"
           test "$actual" = "$expected"
