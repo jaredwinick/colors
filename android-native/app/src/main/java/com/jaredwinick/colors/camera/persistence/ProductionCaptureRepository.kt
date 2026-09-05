@@ -4,9 +4,11 @@ import android.content.Context
 import android.os.Environment
 import com.jaredwinick.colors.camera.camera.AppliedCameraSettings
 import com.jaredwinick.colors.camera.outbox.DurableCapturePayload
+import com.jaredwinick.colors.camera.outbox.DurableCaptureRecord
 import com.jaredwinick.colors.camera.outbox.DurableCaptureStore
 import com.jaredwinick.colors.camera.outbox.OutboxSummary
 import com.jaredwinick.colors.camera.outbox.ReconciliationReport
+import com.jaredwinick.colors.camera.network.DeliveryQueue
 import com.jaredwinick.colors.camera.palette.PaletteStatistics
 import com.jaredwinick.colors.camera.palette.WeightedPalette
 import com.jaredwinick.colors.camera.processing.CaptureArtifactPolicy
@@ -73,7 +75,7 @@ data class ProductionCaptureMetadata(
     }
 }
 
-class ProductionCaptureRepository(context: Context) {
+class ProductionCaptureRepository(context: Context) : DeliveryQueue {
     private val applicationContext = context.applicationContext
     private val outbox = sharedOutbox(applicationContext)
 
@@ -153,9 +155,38 @@ class ProductionCaptureRepository(context: Context) {
     fun markAttention(captureId: String, errorCode: String) =
         outbox.markAttention(captureId, errorCode)
 
+    override fun pendingEligible(now: Instant, limit: Int): List<DurableCaptureRecord> =
+        outbox.pendingEligible(now, limit)
+
+    fun record(captureId: String): DurableCaptureRecord? = outbox.record(captureId)
+
+    override fun recordRetry(
+        captureId: String,
+        errorCode: String,
+        nextEligibleRetryAt: Instant,
+        attemptedAt: Instant,
+    ): DurableCaptureRecord = outbox.recordRetry(
+        captureId,
+        errorCode,
+        nextEligibleRetryAt,
+        attemptedAt,
+    )
+
+    override fun markDelivered(
+        captureId: String,
+        confirmationJson: String,
+        deliveredAt: Instant,
+    ): DurableCaptureRecord = outbox.markDelivered(captureId, confirmationJson, deliveredAt)
+
+    override fun markDeliveryAttention(
+        captureId: String,
+        errorCode: String,
+        detectedAt: Instant,
+    ): DurableCaptureRecord = outbox.markDeliveryAttention(captureId, errorCode, detectedAt)
+
     fun reconcile(): ReconciliationReport = outbox.reconcile()
 
-    fun summary(): OutboxSummary = outbox.summary()
+    override fun summary(): OutboxSummary = outbox.summary()
 
     fun pendingLimitReached(limit: Int): Boolean = summary().pending >= limit
 

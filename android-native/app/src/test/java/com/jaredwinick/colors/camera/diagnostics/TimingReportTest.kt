@@ -68,7 +68,7 @@ class TimingReportTest {
     }
 
     @Test
-    fun `csv includes trigger dispatch and power diagnostics`() {
+    fun `csv includes trigger power and upload diagnostics`() {
         val record = success("timer", 1_800_000L, 1_000L).copy(
             triggerSource = CaptureDiagnostic.TRIGGER_TIMER,
             serviceReceivedAt = 1_800_250L,
@@ -76,6 +76,13 @@ class TimingReportTest {
             batteryPercent = 91,
             batteryOptimizationExempt = true,
             stationWakeLockHeld = true,
+            uploadAttempted = 2,
+            uploadDelivered = 1,
+            uploadRetried = 1,
+            uploadAttentionRequired = 0,
+            uploadDeferred = 0,
+            outboxPendingAfterUpload = 1,
+            uploadErrorCode = "UPLOAD_RETRY_THRESHOLD",
         )
 
         val csv = TimingReport.csv(listOf(record))
@@ -83,8 +90,11 @@ class TimingReportTest {
         assertTrue(csv.contains("trigger_source"))
         assertTrue(csv.contains("service_dispatch_ms"))
         assertTrue(csv.contains("station_wake_lock_held"))
+        assertTrue(csv.contains("upload_delivered"))
+        assertTrue(csv.contains("outbox_pending_after_upload"))
         assertTrue(csv.contains("\"TIMER\""))
         assertTrue(csv.contains("\"91\""))
+        assertTrue(csv.contains("\"UPLOAD_RETRY_THRESHOLD\""))
     }
 
     @Test

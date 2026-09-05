@@ -43,7 +43,9 @@ class SecureTokenStore(context: Context) {
             getOrCreateKey(),
             GCMParameterSpec(GCM_TAG_LENGTH_BITS, Base64.decode(iv, Base64.NO_WRAP)),
         )
-        return String(cipher.doFinal(Base64.decode(ciphertext, Base64.NO_WRAP)))
+        return IngestTokenPolicy.requireValid(
+            String(cipher.doFinal(Base64.decode(ciphertext, Base64.NO_WRAP))),
+        )
     }
 
     fun status(): String = IngestTokenPolicy.status(runCatching { read() }.getOrNull())

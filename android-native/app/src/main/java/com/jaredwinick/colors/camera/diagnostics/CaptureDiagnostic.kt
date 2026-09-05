@@ -41,6 +41,13 @@ data class CaptureDiagnostic(
     val outboxAttention: Int? = null,
     val outboxOldestAgeMs: Long? = null,
     val outboxStorageBytes: Long? = null,
+    val uploadAttempted: Int? = null,
+    val uploadDelivered: Int? = null,
+    val uploadRetried: Int? = null,
+    val uploadAttentionRequired: Int? = null,
+    val uploadDeferred: Int? = null,
+    val outboxPendingAfterUpload: Int? = null,
+    val uploadErrorCode: String? = null,
     val manual: Boolean = false,
 ) {
     val alarmLatenessMs: Long

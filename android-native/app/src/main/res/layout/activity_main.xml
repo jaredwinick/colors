@@ -91,6 +91,12 @@
             android:text="@string/capture_now" />
 
         <Button
+            android:id="@+id/uploadPending"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/upload_pending" />
+
+        <Button
             android:id="@+id/exportReport"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

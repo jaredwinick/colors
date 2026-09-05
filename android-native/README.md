@@ -7,16 +7,16 @@ Android 10 (API 29).
 
 The native app currently provides the production foundation, proven capture
 scheduler, production JPEG normalization, fixed sky-mask calibration,
-deterministic weighted palette extraction, and a transactional durable capture
-outbox. Secure Cloudflare upload and full operations screens are delivered by
-the subsequent roadmap issues. The Termux client in `android/` remains the
-rollback path until the native pipeline passes its production soak test.
+deterministic weighted palette extraction, a transactional durable capture
+outbox, and secure idempotent delivery to the Cloudflare Worker. The Termux
+client in `android/` remains the rollback path until the native pipeline passes
+its production soak test.
 
 ## Production identity and architecture
 
 - Application name: **Colors Camera**
 - Application ID and namespace: `com.jaredwinick.colors.camera`
-- Version: `0.6.1` (`versionCode` 9)
+- Version: `0.7.1` (`versionCode` 11)
 - Capture files: app-private `files/durable-captures`
 - Diagnostics and configuration: app-private storage
 - Ingest token: encrypted with a non-exportable Android Keystore AES-GCM key
@@ -48,7 +48,7 @@ Code is split by responsibility:
 | `mask` | Schema-v1 validation, rasterization, durable calibration, and previews |
 | `palette` | Masked-sky sampling, deterministic weighted median cut, and previews |
 | `outbox` | SQLite capture state machine, immutable files, reconciliation, and retention |
-| `network` | Reserved for secure Worker upload work in Issue #35 |
+| `network` | Strict multipart transport, response validation, retry policy, and delivery cycles |
 
 The scheduler preserves the behavior proven in Issue #27: a foreground
 service holds a partial wake lock in precision mode, an in-process timer owns
@@ -210,6 +210,11 @@ without silent deletion. Existing version-0.5 capture/metadata pairs are
 migrated into the durable store on upgrade; originals are removed only after a
 safe internal copy is committed.
 
+Capture and upload requests received while startup reconciliation is running
+wait for its final result. A successful reconciliation releases each request
+exactly once; a real startup failure records `OUTBOX_INITIALIZATION_FAILED`.
+This prevents manual-only service startup from racing queue inspection.
+
 Pending records are ordered by capture time and UUID. When the configurable
 pending limit (192 by default) is reached, new manual and scheduled captures
 pause with `OUTBOX_BACKPRESSURE`; queued work is retained indefinitely. The
@@ -217,10 +222,21 @@ station status displays staged, processing, pending, delivered, and attention
 counts, oldest pending age, and local storage use. The same queue snapshot is
 included in timing CSV diagnostics.
 
-Issue #35 will consume the oldest eligible pending records and update retry or
-delivery fields. Delivered retention applies only to server-confirmed records,
-using the configured age and count limits; it never removes pending, staged, or
-attention evidence.
+After every successful local commit, the app consumes the oldest eligible
+pending records up to the configured per-cycle budget. **Upload pending captures
+now** runs the same bounded pass without taking a photograph. This is useful for
+recovery and production smoke tests. If the queue is already at its limit, the
+app attempts delivery before recording `OUTBOX_BACKPRESSURE`, preventing a full
+queue from becoming permanently stuck.
+
+Retries preserve the exact UUID, JPEG bytes, capture time, device ID, and
+palette. Network failures, timeouts, retryable HTTP responses, and malformed
+success responses receive exponential backoff from 60 seconds to one hour by
+default. Only a validated `201` with `idempotentReplay: false` or `200` with
+`idempotentReplay: true` moves evidence to `DELIVERED`. Authentication,
+validation, redirect, and `409` idempotency-conflict responses move the complete
+immutable package to `ATTENTION_REQUIRED`; they are never silently deleted.
+Delivered retention applies only to server-confirmed records.
 
 The release endpoint is compiled into the app:
 
@@ -237,6 +253,25 @@ never redisplays or logs it; the screen reports only `configured` or
 `not configured`. Clearing application data or uninstalling the app removes
 the encrypted value. Reinstalling on a different device requires entering the
 token again.
+
+The uploader sends the credential only in the `Authorization: Bearer` header,
+rejects redirects, caps JPEGs at 12 MiB and successful response bodies at
+64 KiB, and never stores response bodies or sensitive headers. Release builds
+require the compiled HTTPS endpoint. Debug HTTP overrides remain restricted to
+loopback hosts.
+
+### Production upload smoke test
+
+1. In **Production settings**, confirm the effective endpoint and save the
+   Cloudflare ingest token. The token field clears and status becomes
+   `configured`.
+2. Note the current pending count. To create one item if necessary, use
+   **Capture test now** and wait for local processing.
+3. Set **Maximum uploads per cycle** to `1`, then tap **Upload pending captures
+   now**. The oldest pending count should fall by one and delivered should rise
+   by one.
+4. Confirm exactly one matching D1 row and R2 object, then load the response's
+   `/api/images/...` route. Restore the upload budget afterward.
 
 ## Build and CI
 
@@ -255,36 +290,51 @@ On Windows:
 gradlew.bat testDebugUnitTest assembleDebug lintDebug
 ```
 
-The APK is written to `app/build/outputs/apk/debug/app-debug.apk`. The
-`android-native.yml` GitHub Actions workflow runs the same command and publishes
-the APK as the `colors-camera-debug` artifact. This is the reproducible build
-path when Android Studio and the Android SDK are not installed locally.
+The local debug APK is written to `app/build/outputs/apk/debug/app-debug.apk`.
+The `android-native.yml` GitHub Actions workflow runs the tests and lint against
+a release build, then publishes the permanently signed APK as the
+`colors-camera-release` artifact. This is the reproducible deployment path when
+Android Studio and the Android SDK are not installed locally.
 
 ## Signing and upgrade-safe sideloads
 
 Android permits an in-place upgrade only when the application ID and signing
-certificate match the installed app. A local debug build normally keeps a
-stable key in the builder's Gradle home, but GitHub-hosted runners do not retain
-their generated debug key between workflow runs. An APK from a different CI run
-may therefore require uninstalling the prior CI APK, which deletes local app
-data.
+certificate match the installed app. GitHub-hosted runners do not retain their
+generated debug keys, so their ordinary debug APKs cannot safely serve as
+upgradable deployments.
 
-For upgrade-safe production sideloads, keep one private release keystore outside
-the repository and sign every APK with that same key. Never commit the keystore
-or its passwords. A maintainer can either configure Android Studio's signed APK
-wizard or add a local Gradle signing configuration sourced from environment
-variables. Before upgrading:
+The Actions workflow instead decodes one encrypted repository-secret keystore
+into the runner's temporary directory and supplies its passwords to Gradle only
+through environment variables. The build fails if any signing input is missing
+or if the resulting certificate does not have this expected SHA-256 fingerprint:
+
+```text
+41:91:06:39:0C:E9:82:8F:BC:F9:F4:70:2B:85:9C:FD:0E:CD:04:8C:0E:CD:4F:B5:6D:81:32:1B:AB:1F:B7:F8
+```
+
+The private recovery copy is stored locally under the ignored `work/signing`
+directory and must be backed up securely. GitHub stores the build copy as these
+write-only repository secrets:
+
+- `ANDROID_SIGNING_KEYSTORE_BASE64`
+- `ANDROID_SIGNING_STORE_PASSWORD`
+- `ANDROID_SIGNING_KEY_ALIAS`
+- `ANDROID_SIGNING_KEY_PASSWORD`
+
+Never commit the keystore or its passwords. Before upgrading:
 
 1. Stop station mode and confirm there is no capture in progress.
 2. Export any timing diagnostics needed for troubleshooting.
-3. Build and sign the new APK with the same private release key.
-4. Transfer it with Quick Share and open it; Android should offer **Update**.
+3. Download `colors-camera-release` from the successful Actions run.
+4. Transfer its APK with Quick Share and open it; Android should offer
+   **Update**.
 5. Open Colors Camera, confirm the saved settings and credential status, then
    start the station and run one test capture.
 
-If Android offers only uninstall/reinstall or reports a signature mismatch,
-stop. Obtain an APK signed with the original key unless deleting the app's
-configuration, token, diagnostics, and captures is acceptable.
+The first transition from an older CI debug APK requires one uninstall because
+that runner's temporary signing key is unrecoverable. After installing the
+stable release APK, stop if any later build offers only uninstall/reinstall or
+reports a signature mismatch; verify its certificate before deleting app data.
 
 ## Galaxy S9+ setup
 
@@ -307,8 +357,7 @@ Termux:API exemptions while Termux remains the rollback path.
 ## Start, test, and stop
 
 1. Open **Production settings**, review the defaults, and save the Cloudflare
-   ingest token. Upload is implemented in later issues, but provisioning the
-   credential now verifies secure persistence.
+   ingest token. The token field clears and its status becomes `configured`.
 2. Return to the station screen, enter `15`, and keep precision mode selected.
 3. Tap **Capture test now** and grant camera access. Confirm **Last capture**
    changes and a JPEG is saved.
@@ -340,7 +389,8 @@ Restore the known working Termux job if native development pauses:
 the intended UTC slot, trigger source, service receipt, capture start and
 completion, timing deltas, screen/power state, safe error code, and image path.
 The report also includes palette JSON, size, analysis dimensions, sampled-pixel
-count, elapsed time, and peak process memory. The ingest token and configuration
+count, elapsed time, peak process memory, and the upload pass counts and error
+code associated with each completed capture. The ingest token and configuration
 secrets are never included.
 
 **Share latest production image** opens Android's share sheet for the newest
@@ -358,9 +408,13 @@ Common error codes include `CAMERA_PERMISSION_MISSING`, `CAMERA_BIND_FAILED`,
 `PRECISION_REQUIRES_BATTERY_EXEMPTION`. Palette failures use safe codes such as
 `PALETTE_IMAGE_DECODE_FAILED`, `PALETTE_MASK_INVALID`,
 `PALETTE_QUANTIZATION_INVALID`, and `PALETTE_EXTRACTION_FAILED`. Durable-store
-codes include `OUTBOX_INITIALIZING`, `OUTBOX_INITIALIZATION_FAILED`,
-`OUTBOX_BACKPRESSURE`, `OUTBOX_INSPECTION_FAILED`,
+codes include `OUTBOX_INITIALIZATION_FAILED`, `OUTBOX_BACKPRESSURE`,
+`OUTBOX_INSPECTION_FAILED`,
 `PROCESS_INTERRUPTED_RECOVERABLE`, and `IMMUTABLE_EVIDENCE_INCONSISTENT`.
+Delivery codes include `INGEST_TOKEN_UNAVAILABLE`, `REQUEST_TIMEOUT`,
+`NETWORK_REQUEST_FAILED`, `SERVER_RETRYABLE`, `AUTHORIZATION_REJECTED`,
+`REQUEST_REJECTED`, `REDIRECT_REJECTED`, `IDEMPOTENCY_CONFLICT`,
+`UPLOAD_RETRY_THRESHOLD`, and `UPLOAD_ATTENTION_REQUIRED`.
 
 ## Stop or uninstall
 

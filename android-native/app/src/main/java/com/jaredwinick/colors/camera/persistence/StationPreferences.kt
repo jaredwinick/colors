@@ -61,6 +61,10 @@ class StationPreferences(context: Context) {
         preferences.edit().putString(KEY_LAST_ERROR, code).apply()
     }
 
+    fun clearLastError() {
+        preferences.edit().remove(KEY_LAST_ERROR).apply()
+    }
+
     @Synchronized
     fun claimScheduledSlot(scheduledFor: Long): Boolean {
         val cutoff = scheduledFor - CLAIM_RETENTION_MS
