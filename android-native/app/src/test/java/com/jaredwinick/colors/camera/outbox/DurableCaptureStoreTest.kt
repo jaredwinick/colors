@@ -171,6 +171,7 @@ class DurableCaptureStoreTest {
             "{\"idempotentReplay\":false}",
             Instant.parse("2026-08-31T00:01:00Z"),
         )
+        assertEquals("2026-08-31T00:01:00Z", store.lastConfirmedUploadAt())
 
         assertEquals(
             1,
@@ -183,6 +184,7 @@ class DurableCaptureStoreTest {
         assertEquals(1, store.summary().pending)
         assertEquals(pending, store.pendingOldestFirst().single().captureId)
         assertEquals(1, store.summary().delivered)
+        assertEquals("2026-08-31T00:01:00Z", store.lastConfirmedUploadAt())
     }
 
     @Test

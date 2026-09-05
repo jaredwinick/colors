@@ -42,6 +42,7 @@ import com.jaredwinick.colors.camera.network.SecureCaptureUploader
 import com.jaredwinick.colors.camera.network.deliverySettings
 import com.jaredwinick.colors.camera.outbox.OutboxInitializationGate
 import com.jaredwinick.colors.camera.outbox.DurableCaptureRecord
+import com.jaredwinick.colors.camera.outbox.FailureNotificationState
 import com.jaredwinick.colors.camera.outbox.OutboxSummary
 import com.jaredwinick.colors.camera.palette.PaletteExtractionException
 import com.jaredwinick.colors.camera.palette.PaletteExtractionResult
@@ -56,6 +57,7 @@ import com.jaredwinick.colors.camera.processing.ImageNormalizationResult
 import com.jaredwinick.colors.camera.schedule.AlarmScheduler
 import com.jaredwinick.colors.camera.schedule.UtcSchedule
 import com.jaredwinick.colors.camera.ui.MainActivity
+import com.jaredwinick.colors.camera.ui.OperationsActivity
 import java.io.File
 import java.time.Instant
 import java.util.UUID
@@ -92,6 +94,7 @@ class StationService : LifecycleService() {
             transport = SecureCaptureUploader(),
             tokenReader = tokenStore::read,
         )
+        createNotificationChannels()
         val startupConfiguration = configurationStore.load()
         processingExecutor.execute {
             runCatching {
@@ -105,6 +108,7 @@ class StationService : LifecycleService() {
                 onSuccess = {
                     mainHandler.post {
                         outboxInitialization.completeSuccessfully()
+                        updateFailureNotification(startupConfiguration)
                         updateNotification()
                     }
                 },
@@ -119,7 +123,6 @@ class StationService : LifecycleService() {
         }
         skyMasks = SkyMaskRepository(this)
         diagnostics.recoverInterrupted()
-        createNotificationChannel()
         promoteToForeground()
     }
 
@@ -1070,14 +1073,24 @@ class StationService : LifecycleService() {
         delivery: DeliveryCycleSummary,
         fallbackError: String? = null,
     ) {
+        if (delivery.delivered > 0) {
+            preferences.setLastConfirmedUpload(System.currentTimeMillis())
+        }
+        val configuration = configurationStore.load()
+        val failureState = runCatching {
+            captureRepository.failureNotificationState(configuration.notifyAfterAttempts)
+        }.getOrNull()
         val code = when {
             delivery.cycleErrorCode != null -> delivery.cycleErrorCode
             delivery.attentionRequired > 0 -> "UPLOAD_ATTENTION_REQUIRED"
             delivery.notificationRequired -> "UPLOAD_RETRY_THRESHOLD"
             delivery.retried > 0 -> delivery.lastAttemptErrorCode ?: "UPLOAD_RETRYING"
+            fallbackError != null -> fallbackError
+            failureState?.lastErrorCode != null -> failureState.lastErrorCode
             else -> fallbackError
         }
         if (code == null) preferences.clearLastError() else preferences.setLastError(code)
+        updateFailureNotification(configuration, failureState)
     }
 
     private fun acquireUploadWakeLock(configuration: AppConfiguration): PowerManager.WakeLock {
@@ -1109,6 +1122,7 @@ class StationService : LifecycleService() {
             ),
         )
         preferences.setLastError(errorCode)
+        updateFailureNotification(configuration)
         captureInProgress.set(false)
         updateNotification()
         stopIfManualOnly()
@@ -1264,15 +1278,64 @@ class StationService : LifecycleService() {
             .build()
     }
 
-    private fun createNotificationChannel() {
-        val channel = NotificationChannel(
+    private fun createNotificationChannels() {
+        val stationChannel = NotificationChannel(
             CHANNEL_ID,
             "Camera station",
             NotificationManager.IMPORTANCE_LOW,
         ).apply {
             description = "Status for UTC-aligned sky captures"
         }
-        getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
+        val attentionChannel = NotificationChannel(
+            ATTENTION_CHANNEL_ID,
+            "Upload attention",
+            NotificationManager.IMPORTANCE_HIGH,
+        ).apply {
+            description = "Generic alerts when queued sky-image delivery needs attention"
+        }
+        getSystemService(NotificationManager::class.java).createNotificationChannels(
+            listOf(stationChannel, attentionChannel),
+        )
+    }
+
+    private fun updateFailureNotification(
+        configuration: AppConfiguration,
+        knownState: FailureNotificationState? = null,
+    ) {
+        val manager = getSystemService(NotificationManager::class.java)
+        val state = knownState ?: runCatching {
+            captureRepository.failureNotificationState(configuration.notifyAfterAttempts)
+        }.getOrNull() ?: return
+        if (preferences.lastError == null && state.lastErrorCode != null) {
+            preferences.setLastError(state.lastErrorCode)
+        }
+        if (!state.required) {
+            manager.cancel(ATTENTION_NOTIFICATION_ID)
+            return
+        }
+        val openOperations = PendingIntent.getActivity(
+            this,
+            1,
+            Intent(this, OperationsActivity::class.java),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val message = "Pending captures: ${state.pendingCount}. " +
+            "Repeated failures: ${state.repeatedFailureCount}. " +
+            "Attention items: ${state.attentionCount}."
+        manager.notify(
+            ATTENTION_NOTIFICATION_ID,
+            NotificationCompat.Builder(this, ATTENTION_CHANNEL_ID)
+                .setSmallIcon(R.drawable.ic_colors_camera)
+                .setContentTitle("Colors upload needs attention")
+                .setContentText(message)
+                .setStyle(NotificationCompat.BigTextStyle().bigText(message))
+                .setContentIntent(openOperations)
+                .setAutoCancel(false)
+                .setOnlyAlertOnce(true)
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setCategory(NotificationCompat.CATEGORY_ERROR)
+                .build(),
+        )
     }
 
     override fun onDestroy() {
@@ -1294,7 +1357,9 @@ class StationService : LifecycleService() {
         const val EXTRA_TRIGGER_RECEIVED_AT = "trigger_received_at"
 
         private const val CHANNEL_ID = "camera_station_v1"
+        private const val ATTENTION_CHANNEL_ID = "station_attention_v1"
         private const val NOTIFICATION_ID = 2701
+        private const val ATTENTION_NOTIFICATION_ID = 2702
         private const val CAPTURE_TIMEOUT_MS = 90_000L
         private const val WAKE_LOCK_TIMEOUT_MS = 120_000L
         private const val MAX_UPLOAD_WAKE_LOCK_MS = 10 * 60_000L

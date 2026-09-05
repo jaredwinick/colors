@@ -6,6 +6,7 @@
     <string name="start_station">Start station</string>
     <string name="stop_station">Stop station</string>
     <string name="capture_now">Capture test now</string>
+    <string name="capture_now_description">Explicitly captures, processes, queues, and attempts to upload one manual test. Manual tests do not count in scheduled timing statistics.</string>
     <string name="upload_pending">Upload pending captures now</string>
     <string name="export_report">Share timing report</string>
     <string name="share_latest_capture">Share latest production image</string>
@@ -18,6 +19,18 @@
     <string name="battery_settings">Open battery optimization settings</string>
     <string name="app_settings">Production settings</string>
     <string name="mask_calibration">Sky mask calibration</string>
+    <string name="station_operations">Station operations and recovery</string>
+    <string name="operations_description">Inspect safe queue metadata, retry delivery, apply confirmed-delivery retention, and export redacted support files. No action on this screen can delete a pending capture.</string>
+    <string name="operations_status_heading">Operational status</string>
+    <string name="safe_queue_heading">Recent safe capture records</string>
+    <string name="retry_uploads_now">Retry eligible uploads now</string>
+    <string name="apply_retention_now">Apply delivered retention now</string>
+    <string name="refresh_operations">Refresh operations</string>
+    <string name="share_safe_queue">Share safe outbox inspection</string>
+    <string name="share_redacted_diagnostics">Share redacted structured diagnostics</string>
+    <string name="share_configuration">Share non-secret configuration</string>
+    <string name="share_active_mask">Share active mask JSON</string>
+    <string name="pending_deletion_safety">Safety: retention applies only to server-confirmed delivered copies. Pending, staged, processing, attention, and conflict evidence cannot be deleted here.</string>
     <string name="mask_calibration_description">The sky mask affects palette sampling only. Production photographs always remain complete and unmasked. Cyan pixels will be sampled; red pixels are excluded.</string>
     <string name="preview_active_mask">Preview active mask on latest image</string>
     <string name="show_calibration_grid">Show normalized grid and boundary labels</string>

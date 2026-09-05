@@ -58,6 +58,27 @@ data class ReconciliationReport(
     val attentionRequired: Int = 0,
 )
 
+data class SafeCaptureRecord(
+    val captureId: String,
+    val state: DurableCaptureState,
+    val capturedAt: String,
+    val byteCount: Long,
+    val attemptCount: Int,
+    val lastAttemptAt: String?,
+    val lastErrorCode: String?,
+    val nextEligibleRetryAt: String?,
+    val deliveredAt: String?,
+)
+
+data class FailureNotificationState(
+    val pendingCount: Int,
+    val repeatedFailureCount: Int,
+    val attentionCount: Int,
+    val lastErrorCode: String?,
+) {
+    val required: Boolean get() = repeatedFailureCount > 0 || attentionCount > 0
+}
+
 data class EnqueueResult(
     val record: DurableCaptureRecord,
     val duplicate: Boolean,
@@ -100,6 +121,62 @@ object DurableCapturePolicy {
     fun pendingOldestFirst(records: List<DurableCaptureRecord>): List<DurableCaptureRecord> =
         records.filter { it.state == DurableCaptureState.PENDING_UPLOAD }
             .sortedWith(compareBy<DurableCaptureRecord> { it.capturedAt }.thenBy { it.captureId })
+
+    fun safeOperatorRecords(
+        records: List<DurableCaptureRecord>,
+        limit: Int,
+    ): List<SafeCaptureRecord> {
+        require(limit in 1..1_000)
+        return records.sortedWith(
+            compareBy<DurableCaptureRecord> { operatorPriority(it.state) }
+                .thenByDescending { it.capturedAt }
+                .thenByDescending { it.captureId },
+        ).take(limit).map { record ->
+            SafeCaptureRecord(
+                captureId = record.captureId,
+                state = record.state,
+                capturedAt = record.capturedAt,
+                byteCount = record.byteCount,
+                attemptCount = record.attemptCount,
+                lastAttemptAt = record.lastAttemptAt,
+                lastErrorCode = record.lastErrorCode,
+                nextEligibleRetryAt = record.nextEligibleRetryAt,
+                deliveredAt = record.deliveredAt,
+            )
+        }
+    }
+
+    fun failureNotificationState(
+        records: List<DurableCaptureRecord>,
+        conflictCount: Int,
+        notifyAfterAttempts: Int,
+    ): FailureNotificationState {
+        require(conflictCount >= 0)
+        require(notifyAfterAttempts >= 1)
+        return FailureNotificationState(
+            pendingCount = records.count { it.state == DurableCaptureState.PENDING_UPLOAD },
+            repeatedFailureCount = records.count {
+                it.state == DurableCaptureState.PENDING_UPLOAD &&
+                    it.attemptCount >= notifyAfterAttempts
+            },
+            attentionCount = records.count {
+                it.state == DurableCaptureState.ATTENTION_REQUIRED
+            } + conflictCount,
+            lastErrorCode = records.filter {
+                it.state in setOf(
+                    DurableCaptureState.PENDING_UPLOAD,
+                    DurableCaptureState.ATTENTION_REQUIRED,
+                ) && it.lastErrorCode != null
+            }.maxByOrNull(DurableCaptureRecord::updatedAt)?.lastErrorCode,
+        )
+    }
+
+    private fun operatorPriority(state: DurableCaptureState): Int = when (state) {
+        DurableCaptureState.ATTENTION_REQUIRED -> 0
+        DurableCaptureState.PENDING_UPLOAD -> 1
+        DurableCaptureState.STAGED, DurableCaptureState.PROCESSING -> 2
+        DurableCaptureState.DELIVERED -> 3
+    }
 
     fun deliveredRetentionIds(
         records: List<DurableCaptureRecord>,

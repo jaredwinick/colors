@@ -6,8 +6,10 @@ import com.jaredwinick.colors.camera.camera.AppliedCameraSettings
 import com.jaredwinick.colors.camera.outbox.DurableCapturePayload
 import com.jaredwinick.colors.camera.outbox.DurableCaptureRecord
 import com.jaredwinick.colors.camera.outbox.DurableCaptureStore
+import com.jaredwinick.colors.camera.outbox.FailureNotificationState
 import com.jaredwinick.colors.camera.outbox.OutboxSummary
 import com.jaredwinick.colors.camera.outbox.ReconciliationReport
+import com.jaredwinick.colors.camera.outbox.SafeCaptureRecord
 import com.jaredwinick.colors.camera.network.DeliveryQueue
 import com.jaredwinick.colors.camera.palette.PaletteStatistics
 import com.jaredwinick.colors.camera.palette.WeightedPalette
@@ -121,6 +123,14 @@ class ProductionCaptureRepository(context: Context) : DeliveryQueue {
         outbox.returnToStaged(captureId, errorCode, now)
 
     fun oldestStaged(): DurableCaptureRecord? = outbox.oldestStaged()
+
+    fun safeOperatorRecords(limit: Int = 100): List<SafeCaptureRecord> =
+        outbox.safeOperatorRecords(limit)
+
+    fun lastConfirmedUploadAt(): String? = outbox.lastConfirmedUploadAt()
+
+    fun failureNotificationState(notifyAfterAttempts: Int): FailureNotificationState =
+        outbox.failureNotificationState(notifyAfterAttempts)
 
     @Synchronized
     fun commit(normalizedTemp: File, metadata: ProductionCaptureMetadata): File {

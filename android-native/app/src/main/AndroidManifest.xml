@@ -23,6 +23,10 @@
         android:theme="@style/Theme.ColorsCamera">
 
         <activity
+            android:name=".ui.OperationsActivity"
+            android:exported="false" />
+
+        <activity
             android:name=".ui.SettingsActivity"
             android:exported="false" />
 
