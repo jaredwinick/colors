@@ -13,6 +13,7 @@ class StationPreferences(context: Context) {
     val precisionMode: Boolean get() = preferences.getBoolean(KEY_PRECISION_MODE, false)
     val nextCaptureAt: Long get() = preferences.getLong(KEY_NEXT_CAPTURE, 0)
     val lastCaptureAt: Long get() = preferences.getLong(KEY_LAST_CAPTURE, 0)
+    val lastConfirmedUploadAt: Long get() = preferences.getLong(KEY_LAST_CONFIRMED_UPLOAD, 0)
     val lastError: String? get() = preferences.getString(KEY_LAST_ERROR, null)
     val sessionId: String get() = preferences.getString(KEY_SESSION_ID, "") ?: ""
     val firstScheduledAt: Long get() = preferences.getLong(KEY_FIRST_SCHEDULED, 0)
@@ -57,6 +58,10 @@ class StationPreferences(context: Context) {
             .apply()
     }
 
+    fun setLastConfirmedUpload(value: Long) {
+        preferences.edit().putLong(KEY_LAST_CONFIRMED_UPLOAD, value).apply()
+    }
+
     fun setLastError(code: String) {
         preferences.edit().putString(KEY_LAST_ERROR, code).apply()
     }
@@ -88,6 +93,7 @@ class StationPreferences(context: Context) {
         private const val KEY_PRECISION_MODE = "precision_mode"
         private const val KEY_NEXT_CAPTURE = "next_capture_at"
         private const val KEY_LAST_CAPTURE = "last_capture_at"
+        private const val KEY_LAST_CONFIRMED_UPLOAD = "last_confirmed_upload_at"
         private const val KEY_LAST_ERROR = "last_error"
         private const val KEY_SESSION_ID = "session_id"
         private const val KEY_FIRST_SCHEDULED = "first_scheduled_at"

@@ -17,12 +17,16 @@
             android:textAppearance="?android:attr/textAppearanceLarge"
             android:textStyle="bold" />
 
+        <TextView
+            style="@style/ConfigurationLabel"
+            android:labelFor="@id/intervalMinutes"
+            android:text="@string/interval_minutes" />
+
         <EditText
             android:id="@+id/intervalMinutes"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
-            android:hint="@string/interval_minutes"
             android:importantForAutofill="no"
             android:inputType="number"
             android:maxLength="4"
@@ -59,6 +63,12 @@
             android:layout_height="wrap_content"
             android:text="@string/mask_calibration" />
 
+        <Button
+            android:id="@+id/stationOperations"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/station_operations" />
+
         <LinearLayout
             style="?android:attr/buttonBarStyle"
             android:layout_width="match_parent"
@@ -90,6 +100,12 @@
             android:layout_height="wrap_content"
             android:text="@string/capture_now" />
 
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/capture_now_description"
+            android:textAppearance="?android:attr/textAppearanceSmall" />
+
         <Button
             android:id="@+id/uploadPending"
             android:layout_width="match_parent"
@@ -120,6 +136,7 @@
             android:id="@+id/statusText"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:accessibilityLiveRegion="polite"
             android:fontFamily="monospace"
             android:textIsSelectable="true" />
 

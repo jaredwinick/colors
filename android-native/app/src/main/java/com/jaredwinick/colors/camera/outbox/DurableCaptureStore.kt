@@ -385,6 +385,24 @@ class DurableCaptureStore internal constructor(
         .minWithOrNull(compareBy<DurableCaptureRecord> { it.capturedAt }.thenBy { it.captureId })
 
     @Synchronized
+    fun safeOperatorRecords(limit: Int = 100): List<SafeCaptureRecord> =
+        DurableCapturePolicy.safeOperatorRecords(database.allRecords(), limit)
+
+    @Synchronized
+    fun lastConfirmedUploadAt(): String? = database.allRecords()
+        .filter { it.state == DurableCaptureState.DELIVERED }
+        .mapNotNull(DurableCaptureRecord::deliveredAt)
+        .maxOrNull()
+
+    @Synchronized
+    fun failureNotificationState(notifyAfterAttempts: Int): FailureNotificationState =
+        DurableCapturePolicy.failureNotificationState(
+            records = database.allRecords(),
+            conflictCount = database.conflictCount(),
+            notifyAfterAttempts = notifyAfterAttempts,
+        )
+
+    @Synchronized
     fun record(captureId: String): DurableCaptureRecord? = database.record(captureId)
 
     @Synchronized

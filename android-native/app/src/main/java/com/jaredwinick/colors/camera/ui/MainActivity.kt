@@ -2,6 +2,7 @@ package com.jaredwinick.colors.camera.ui
 
 import android.Manifest
 import android.app.AlarmManager
+import android.app.AlertDialog
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -22,8 +23,11 @@ import androidx.core.content.FileProvider
 import com.jaredwinick.colors.camera.R
 import com.jaredwinick.colors.camera.camera.PowerSnapshotReader
 import com.jaredwinick.colors.camera.camera.StationService
+import com.jaredwinick.colors.camera.config.AppConfiguration
 import com.jaredwinick.colors.camera.config.ConfigurationStore
+import com.jaredwinick.colors.camera.config.SecureTokenStore
 import com.jaredwinick.colors.camera.diagnostics.TimingReport
+import com.jaredwinick.colors.camera.mask.SkyMaskRepository
 import com.jaredwinick.colors.camera.persistence.DiagnosticStore
 import com.jaredwinick.colors.camera.persistence.ProductionCaptureRepository
 import com.jaredwinick.colors.camera.persistence.StationPreferences
@@ -36,6 +40,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var preferences: StationPreferences
     private lateinit var diagnostics: DiagnosticStore
     private lateinit var configurationStore: ConfigurationStore
+    private lateinit var tokenStore: SecureTokenStore
+    private lateinit var masks: SkyMaskRepository
     private lateinit var captureRepository: ProductionCaptureRepository
     private lateinit var intervalInput: EditText
     private lateinit var precisionModeInput: CheckBox
@@ -69,6 +75,8 @@ class MainActivity : AppCompatActivity() {
         preferences = StationPreferences(this)
         diagnostics = DiagnosticStore(this)
         configurationStore = ConfigurationStore(this)
+        tokenStore = SecureTokenStore(this)
+        masks = SkyMaskRepository(this)
         captureRepository = ProductionCaptureRepository(this)
         intervalInput = findViewById(R.id.intervalMinutes)
         precisionModeInput = findViewById(R.id.precisionMode)
@@ -94,6 +102,9 @@ class MainActivity : AppCompatActivity() {
         }
         findViewById<Button>(R.id.maskCalibration).setOnClickListener {
             startActivity(Intent(this, MaskCalibrationActivity::class.java))
+        }
+        findViewById<Button>(R.id.stationOperations).setOnClickListener {
+            startActivity(Intent(this, OperationsActivity::class.java))
         }
     }
 
@@ -150,11 +161,51 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        val current = configurationStore.load()
+        when (
+            StationStartPolicy.decide(
+                running = preferences.enabled,
+                savedIntervalMinutes = current.intervalMinutes,
+                savedPrecisionMode = current.precisionMode,
+                requestedIntervalMinutes = interval,
+                requestedPrecisionMode = precisionMode,
+            )
+        ) {
+            StationStartDecision.ALREADY_RUNNING -> {
+                toast("Station is already running with this schedule")
+                return
+            }
+            StationStartDecision.CONFIRM_RESTART -> {
+                AlertDialog.Builder(this)
+                    .setTitle("Restart the station schedule?")
+                    .setMessage(
+                        "Changing the interval or precision mode starts a new timing session and " +
+                            "replaces the next UTC capture. Existing captures remain safe.",
+                    )
+                    .setNegativeButton("Cancel", null)
+                    .setPositiveButton("Restart schedule") { _, _ ->
+                        commitStationStart(current, interval, precisionMode)
+                    }
+                    .show()
+                return
+            }
+            StationStartDecision.START -> Unit
+        }
+        commitStationStart(current, interval, precisionMode)
+    }
+
+    private fun commitStationStart(
+        current: AppConfiguration,
+        interval: Int,
+        precisionMode: Boolean,
+    ) {
+        if (preferences.enabled) {
+            // Cancel the old slot while its identity is still available. The
+            // subsequent start writes and schedules the replacement boundary.
+            AlarmScheduler(this).cancel()
+        }
         configurationStore.save(
-            configurationStore.load().copy(
-                intervalMinutes = interval,
-                precisionMode = precisionMode,
-            ),
+            current.copy(intervalMinutes = interval, precisionMode = precisionMode),
         )
         preferences.start(interval, precisionMode)
         val intent = Intent(this, StationService::class.java).setAction(StationService.ACTION_START)
@@ -191,9 +242,21 @@ class MainActivity : AppCompatActivity() {
             PackageManager.PERMISSION_GRANTED
         val power = PowerSnapshotReader.read(this)
         val queue = runCatching { captureRepository.summary() }.getOrNull()
+        val configuration = runCatching { configurationStore.load() }.getOrNull()
+        val mask = runCatching { masks.active() }.getOrNull()
+        val lastConfirmedUpload = preferences.lastConfirmedUploadAt.takeIf { it > 0 }
+            ?.let(UtcSchedule::format)
+            ?: runCatching { captureRepository.lastConfirmedUploadAt() }.getOrNull()
+            ?: "—"
         statusText.text = buildString {
             appendLine("Station: ${if (preferences.enabled) "RUNNING" else "STOPPED"}")
-            appendLine("Mode: ${if (preferences.precisionMode) "PRECISION EXPERIMENT" else "ALARM ONLY"}")
+            appendLine(
+                "Mode: ${if (preferences.precisionMode) {
+                    "PRECISION TIMER + FALLBACK ALARM"
+                } else {
+                    "FALLBACK ALARM ONLY"
+                }}",
+            )
             appendLine("Camera permission: ${if (cameraGranted) "granted" else "required"}")
             appendLine("Exact alarms: ${if (canScheduleExactAlarms()) "available" else "permission required"}")
             appendLine("External power: ${if (power.plugged) "connected" else "not connected"}")
@@ -203,6 +266,8 @@ class MainActivity : AppCompatActivity() {
             appendLine("Interval: ${preferences.intervalMinutes} minutes")
             appendLine("Next capture: ${UtcSchedule.format(preferences.nextCaptureAt)}")
             appendLine("Last capture: ${UtcSchedule.format(preferences.lastCaptureAt)}")
+            appendLine("Last confirmed upload: $lastConfirmedUpload")
+            appendLine("Production token: ${tokenStore.status()}")
             if (queue != null) {
                 appendLine(
                     "Queue staged / processing / pending: " +
@@ -219,6 +284,33 @@ class MainActivity : AppCompatActivity() {
                 )
             } else {
                 appendLine("Durable queue: unavailable")
+            }
+            if (configuration != null) {
+                appendLine(
+                    "Camera: ${configuration.cameraLens}; focus ${configuration.focusMode}; " +
+                        "white balance ${configuration.whiteBalanceMode}; " +
+                        "exposure ${configuration.exposureCompensationTenthsEv / 10.0} EV",
+                )
+                appendLine(
+                    "Image: ${configuration.maxImageDimension}px; JPEG ${configuration.jpegQuality}; " +
+                        "palette ${configuration.paletteColors} colors at " +
+                        "${configuration.paletteAnalysisDimension}px",
+                )
+                appendLine(
+                    "Retry: ${configuration.initialRetrySeconds}-${configuration.maximumRetrySeconds}s; " +
+                        "notify at ${configuration.notifyAfterAttempts}; uploads/cycle " +
+                        configuration.maxUploadsPerCycle,
+                )
+                appendLine(
+                    "Retention: ${configuration.retentionDays} days / " +
+                        "${configuration.retentionCount} delivered captures",
+                )
+            }
+            if (mask != null) {
+                appendLine(
+                    "Mask: schema ${mask.schemaVersion}; ${mask.coordinateSpace}; " +
+                        "${mask.includePolygon.size} include points",
+                )
             }
             append("Last error: ${preferences.lastError ?: "—"}")
         }

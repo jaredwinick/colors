@@ -8,8 +8,8 @@ Android 10 (API 29).
 The native app currently provides the production foundation, proven capture
 scheduler, production JPEG normalization, fixed sky-mask calibration,
 deterministic weighted palette extraction, a transactional durable capture
-outbox, secure idempotent delivery to the Cloudflare Worker, and the integrated
-unattended production cycle. The Termux
+outbox, secure idempotent delivery to the Cloudflare Worker, the integrated
+unattended production cycle, and native appliance operations. The Termux
 client in `android/` remains the rollback path until the native pipeline passes
 its production soak test.
 
@@ -17,7 +17,7 @@ its production soak test.
 
 - Application name: **Colors Camera**
 - Application ID and namespace: `com.jaredwinick.colors.camera`
-- Version: `0.8.0` (`versionCode` 12)
+- Version: `0.9.0` (`versionCode` 13)
 - Capture files: app-private `files/durable-captures`
 - Diagnostics and configuration: app-private storage
 - Ingest token: encrypted with a non-exportable Android Keystore AES-GCM key
@@ -120,6 +120,12 @@ schema-3 installation still using the former six-color default is migrated to
 eight colors, while a deliberately customized count is preserved. An unknown
 future schema is never interpreted as current configuration. All values are
 validated before saving.
+
+If station mode is already running, pressing **Start station** with a changed
+interval or precision mode shows a confirmation before replacing the next UTC
+slot and beginning a new timing session. Pressing it with the unchanged live
+schedule does not restart anything. Camera, palette, retry, and retention
+settings apply safely on the next cycle without replacing the UTC schedule.
 
 ## Production camera and JPEG behavior
 
@@ -323,6 +329,45 @@ leave the display off through several UTC boundaries.
    recovered staged ID, retention count, and final staged/pending counts; also
    confirm no `OVERLAP_PREVENTED` burst or duplicate capture for one UTC slot.
 
+## Station operations and recovery
+
+The main dashboard is the at-a-glance appliance view. It reports running state,
+precision-timer/fallback mode, next intended UTC capture, last successful
+capture, last confirmed upload, safe last error, camera and power prerequisites,
+token presence, queue counts and age, storage use, camera/image/palette settings,
+mask schema, retry policy, and delivered retention. Token material is never
+rendered; only `configured` or `not configured` is shown.
+
+Open **Station operations and recovery** for safe queue details and maintenance:
+
+- **Retry eligible uploads now** runs the bounded oldest-first delivery pass.
+- **Apply delivered retention now** removes only locally retained records whose
+  delivery was server-confirmed and which exceed the configured time/count
+  policy. There is intentionally no pending-work deletion control.
+- Recent records identify recoverable staged sources, processing work, ready or
+  retryable uploads, confirmed delivery, and attention-required evidence. The
+  view contains IDs, timestamps, byte counts, retry counts, next eligibility,
+  and safe error codes—not file paths, hashes, metadata bodies, or server
+  responses.
+- Sharing actions export safe queue JSON, size-bounded redacted JSONL
+  diagnostics, non-secret configuration JSON, and active mask JSON through the
+  Android share sheet. Timing CSV and image sharing remain on the main screen;
+  mask import, validation, preview, backup, activation, and reset remain under
+  **Sky mask calibration**.
+
+**Capture test now** is the operator's explicit choice to capture, process,
+queue, and attempt delivery of one test image; manual rows remain excluded from
+scheduled timing statistics. Use **Sky mask calibration** to preview its mask
+overlay and **Production settings** to inspect weighted palette swatches from
+the latest retained image.
+
+When a pending record reaches **Notify after failed attempts**, or immutable
+evidence moves to attention, Android shows a separate high-priority generic
+**Colors upload needs attention** notification. It reports only pending,
+repeated-failure, and attention counts and opens the operations screen. A retry
+error remains visible during backoff; the alert clears only after the queue
+actually recovers. The ordinary station notification remains low priority.
+
 ## Build and CI
 
 The pinned build uses Android Gradle Plugin 8.9.2, Gradle 8.11.1, JDK 17,
@@ -381,6 +426,11 @@ Never commit the keystore or its passwords. Before upgrading:
 5. Open Colors Camera, confirm the saved settings and credential status, then
    start the station and run one test capture.
 
+To rotate the Cloudflare credential, open **Production settings**, enter the
+new value in the password field, and tap **Save token securely**. The field is
+cleared immediately and only `configured` is displayed. Use **Clear token** only
+when intentionally disabling uploads; queued captures are retained.
+
 The first transition from an older CI debug APK requires one uninstall because
 that runner's temporary signing key is unrecoverable. After installing the
 stable release APK, stop if any later build offers only uninstall/reinstall or
@@ -419,6 +469,12 @@ Tap **Stop station** to cancel the fallback alarm, stop the foreground service,
 and release the continuous wake lock. Captures and diagnostics are retained.
 Starting again creates a fresh timing session. Manual test captures are excluded
 from scheduled timing statistics.
+
+Offline recovery requires no scheduler restart. Leave station mode running;
+new images continue into the durable queue. When connectivity returns, use the
+next scheduled cycle or **Retry eligible uploads now**. For a deliberate
+scheduler restart, change the interval or precision choice, tap **Start
+station**, and accept the restart confirmation.
 
 Before running the native station, cancel the Termux scheduler so both systems
 cannot request the camera:
