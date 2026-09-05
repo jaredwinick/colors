@@ -54,6 +54,7 @@ class DurableCaptureStoreTest {
 
         assertEquals(1, report.recoveredStaged)
         assertTrue(raw.isFile)
+        assertFalse(interruptedOutput.exists())
         assertEquals(1, store.summary().staged)
         assertEquals(0, store.summary().attentionRequired)
     }
@@ -78,7 +79,6 @@ class DurableCaptureStoreTest {
         assertEquals("PALETTE_MASK_INVALID", returned.lastErrorCode)
         assertEquals(contextJson, returned.processingMetadataJson)
         assertTrue(raw.isFile)
-        assertFalse(interruptedOutput.exists())
         assertFalse(store.normalizedTempFile(captureId).exists())
     }
 
