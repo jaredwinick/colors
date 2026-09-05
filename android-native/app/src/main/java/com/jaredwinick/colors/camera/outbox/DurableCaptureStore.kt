@@ -79,7 +79,7 @@ class DurableCaptureStore internal constructor(
         require(image.isFile && image.length() == json.getLong("bytes"))
         val raw = rawFile(captureId)
         copySynced(image, raw)
-        recordStaged(captureId, capturedAt, deviceId, now)
+        recordStaged(captureId, capturedAt, deviceId, now = now)
         markProcessing(captureId, now)
         val normalized = normalizedTempFile(captureId)
         copySynced(image, normalized)
@@ -118,6 +118,7 @@ class DurableCaptureStore internal constructor(
         captureId: String,
         capturedAt: String,
         deviceId: String,
+        stagingMetadataJson: String? = null,
         now: Instant = Instant.now(),
     ): DurableCaptureRecord {
         CaptureArtifactPolicy.requireCaptureId(captureId)
@@ -157,7 +158,7 @@ class DurableCaptureStore internal constructor(
             byteCount = raw.length(),
             imageSha256 = sha256(raw),
             paletteJson = null,
-            processingMetadataJson = null,
+            processingMetadataJson = stagingMetadataJson,
             immutableFingerprint = null,
             imagePath = raw.absolutePath,
             metadataPath = null,
@@ -177,6 +178,23 @@ class DurableCaptureStore internal constructor(
         val record = requireNotNull(database.record(captureId)) { "Staged capture is missing" }
         require(record.state == DurableCaptureState.STAGED) { "Only staged captures can be processed" }
         database.updateState(captureId, DurableCaptureState.PROCESSING, now.toString())
+    }
+
+    @Synchronized
+    fun returnToStaged(
+        captureId: String,
+        errorCode: String,
+        now: Instant = Instant.now(),
+    ): DurableCaptureRecord {
+        DurableCapturePolicy.requireSafeErrorCode(errorCode)
+        val record = requireNotNull(database.record(captureId)) { "Capture is missing" }
+        require(record.state in setOf(DurableCaptureState.STAGED, DurableCaptureState.PROCESSING)) {
+            "Only staged or processing captures can be returned to staged"
+        }
+        require(File(record.imagePath).isFile) { "Staged source image is missing" }
+        normalizedTempFile(captureId).delete()
+        database.updateState(captureId, DurableCaptureState.STAGED, now.toString(), errorCode)
+        return requireNotNull(database.record(captureId))
     }
 
     @Synchronized
@@ -360,6 +378,11 @@ class DurableCaptureStore internal constructor(
     @Synchronized
     fun pendingOldestFirst(): List<DurableCaptureRecord> =
         DurableCapturePolicy.pendingOldestFirst(database.allRecords())
+
+    @Synchronized
+    fun oldestStaged(): DurableCaptureRecord? = database.allRecords()
+        .filter { it.state == DurableCaptureState.STAGED }
+        .minWithOrNull(compareBy<DurableCaptureRecord> { it.capturedAt }.thenBy { it.captureId })
 
     @Synchronized
     fun record(captureId: String): DurableCaptureRecord? = database.record(captureId)
@@ -598,12 +621,7 @@ class DurableCaptureStore internal constructor(
             when (record.state) {
                 DurableCaptureState.PROCESSING -> {
                     if (File(record.imagePath).isFile) {
-                        database.updateState(
-                            record.captureId,
-                            DurableCaptureState.STAGED,
-                            now.toString(),
-                            "PROCESS_INTERRUPTED_RECOVERABLE",
-                        )
+                        returnToStaged(record.captureId, "PROCESS_INTERRUPTED_RECOVERABLE", now)
                         report = report.copy(recoveredStaged = report.recoveredStaged + 1)
                     } else {
                         database.updateState(
@@ -615,14 +633,18 @@ class DurableCaptureStore internal constructor(
                         report = report.copy(attentionRequired = report.attentionRequired + 1)
                     }
                 }
-                DurableCaptureState.STAGED -> if (!File(record.imagePath).isFile) {
-                    database.updateState(
-                        record.captureId,
-                        DurableCaptureState.ATTENTION_REQUIRED,
-                        now.toString(),
-                        "STAGED_IMAGE_MISSING",
-                    )
-                    report = report.copy(attentionRequired = report.attentionRequired + 1)
+                DurableCaptureState.STAGED -> {
+                    if (!File(record.imagePath).isFile) {
+                        database.updateState(
+                            record.captureId,
+                            DurableCaptureState.ATTENTION_REQUIRED,
+                            now.toString(),
+                            "STAGED_IMAGE_MISSING",
+                        )
+                        report = report.copy(attentionRequired = report.attentionRequired + 1)
+                    } else {
+                        normalizedTempFile(record.captureId).delete()
+                    }
                 }
                 DurableCaptureState.PENDING_UPLOAD,
                 DurableCaptureState.DELIVERED,

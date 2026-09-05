@@ -83,6 +83,13 @@ class TimingReportTest {
             uploadDeferred = 0,
             outboxPendingAfterUpload = 1,
             uploadErrorCode = "UPLOAD_RETRY_THRESHOLD",
+            cycleAction = "CAPTURE_NEW",
+            recoveredStagedCaptureId = "old-capture-id",
+            preUploadAttempted = 1,
+            postUploadAttempted = 1,
+            retentionRemoved = 2,
+            outboxStagedAfterCycle = 0,
+            outboxPendingAfterCycle = 1,
         )
 
         val csv = TimingReport.csv(listOf(record))
@@ -92,9 +99,13 @@ class TimingReportTest {
         assertTrue(csv.contains("station_wake_lock_held"))
         assertTrue(csv.contains("upload_delivered"))
         assertTrue(csv.contains("outbox_pending_after_upload"))
+        assertTrue(csv.contains("recovered_staged_capture_id"))
+        assertTrue(csv.contains("outbox_pending_after_cycle"))
         assertTrue(csv.contains("\"TIMER\""))
         assertTrue(csv.contains("\"91\""))
         assertTrue(csv.contains("\"UPLOAD_RETRY_THRESHOLD\""))
+        assertTrue(csv.contains("\"CAPTURE_NEW\""))
+        assertTrue(csv.contains("\"old-capture-id\""))
     }
 
     @Test

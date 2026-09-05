@@ -48,6 +48,13 @@ data class CaptureDiagnostic(
     val uploadDeferred: Int? = null,
     val outboxPendingAfterUpload: Int? = null,
     val uploadErrorCode: String? = null,
+    val cycleAction: String? = null,
+    val recoveredStagedCaptureId: String? = null,
+    val preUploadAttempted: Int? = null,
+    val postUploadAttempted: Int? = null,
+    val retentionRemoved: Int? = null,
+    val outboxStagedAfterCycle: Int? = null,
+    val outboxPendingAfterCycle: Int? = null,
     val manual: Boolean = false,
 ) {
     val alarmLatenessMs: Long

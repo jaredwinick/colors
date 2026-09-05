@@ -11,6 +11,8 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -39,6 +41,8 @@ import com.jaredwinick.colors.camera.network.DeliveryCycleSummary
 import com.jaredwinick.colors.camera.network.SecureCaptureUploader
 import com.jaredwinick.colors.camera.network.deliverySettings
 import com.jaredwinick.colors.camera.outbox.OutboxInitializationGate
+import com.jaredwinick.colors.camera.outbox.DurableCaptureRecord
+import com.jaredwinick.colors.camera.outbox.OutboxSummary
 import com.jaredwinick.colors.camera.palette.PaletteExtractionException
 import com.jaredwinick.colors.camera.palette.PaletteExtractionResult
 import com.jaredwinick.colors.camera.palette.PaletteExtractor
@@ -272,11 +276,6 @@ class StationService : LifecycleService() {
             return
         }
 
-        if (queueSummary.pending >= configuration.maxPendingCaptures) {
-            drainBeforeBackpressure(record, configuration)
-            return
-        }
-
         if (!captureInProgress.compareAndSet(false, true)) {
             diagnostics.complete(
                 record.copy(
@@ -291,6 +290,76 @@ class StationService : LifecycleService() {
 
         diagnostics.begin(record)
         updateNotification()
+        beginCyclePreflight(record, configuration)
+    }
+
+    private fun beginCyclePreflight(
+        record: CaptureDiagnostic,
+        configuration: AppConfiguration,
+    ) {
+        processingExecutor.execute {
+            val preflight = runCatching {
+                val preUpload = drainOutbox(
+                    configuration = configuration,
+                    uploadLimit = ProductionCyclePolicy.preCaptureUploadLimit(
+                        configuration.maxUploadsPerCycle,
+                    ),
+                    timeoutSeconds = minOf(
+                        configuration.requestTimeoutSeconds,
+                        ProductionCyclePolicy.PRE_CAPTURE_TIMEOUT_SECONDS,
+                    ),
+                )
+                val staged = captureRepository.oldestStaged()
+                val summary = captureRepository.summary()
+                val plan = ProductionCyclePolicy.plan(
+                    pendingAfterPreflight = summary.pending,
+                    hasStagedCapture = staged != null,
+                    maximumPendingCaptures = configuration.maxPendingCaptures,
+                    configuredUploadBudget = configuration.maxUploadsPerCycle,
+                    preflightAttempts = preUpload.attempted,
+                )
+                CyclePreflight(preUpload, staged, plan)
+            }
+            mainHandler.post {
+                preflight.fold(
+                    onSuccess = { prepared ->
+                        val delivery = CycleDeliveryState(
+                            preUpload = prepared.preUpload,
+                            remainingBudget = prepared.plan.remainingUploadBudget,
+                        )
+                        when (prepared.plan.action) {
+                            ProductionCycleAction.RECOVER_STAGED -> recoverStagedCapture(
+                                record = record,
+                                staged = requireNotNull(prepared.staged),
+                                configuration = configuration,
+                                cycleDelivery = delivery,
+                            )
+                            ProductionCycleAction.BACKPRESSURE -> finishBackpressureCycle(
+                                record,
+                                configuration,
+                                delivery,
+                            )
+                            ProductionCycleAction.CAPTURE_NEW -> startCameraCapture(
+                                record.copy(cycleAction = ProductionCycleAction.CAPTURE_NEW.name),
+                                configuration,
+                                delivery,
+                            )
+                        }
+                    },
+                    onFailure = {
+                        finishCapture(record, "CYCLE_PREFLIGHT_FAILED")
+                    },
+                )
+            }
+        }
+    }
+
+    private fun startCameraCapture(
+        record: CaptureDiagnostic,
+        configuration: AppConfiguration,
+        cycleDelivery: CycleDeliveryState,
+    ) {
+        val captureId = record.captureId
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) !=
             PackageManager.PERMISSION_GRANTED
         ) {
@@ -312,9 +381,9 @@ class StationService : LifecycleService() {
         val watchdog = Runnable {
             if (finished.compareAndSet(false, true)) {
                 cameraProvider?.unbindAll()
-                captureRepository.abandon(captureId)
+                preserveOrAbandonCapture(captureId, "CAPTURE_TIMEOUT")
                 releaseWakeLock(wakeLock)
-                finishCapture(activeRecord, "CAPTURE_TIMEOUT")
+                finishCapture(activeRecord.withCycleDelivery(cycleDelivery), "CAPTURE_TIMEOUT")
             }
         }
         mainHandler.postDelayed(watchdog, CAPTURE_TIMEOUT_MS)
@@ -364,8 +433,12 @@ class StationService : LifecycleService() {
                                         captureId,
                                         Instant.ofEpochMilli(lateCapturedAt).toString(),
                                         configuration.deviceId,
+                                        StagedCaptureContext(
+                                            selectedCamera = configuration.cameraLens.name,
+                                            cameraId = cameraId,
+                                            appliedSettings = appliedSettings,
+                                        ).toJson(),
                                     )
-                                    captureRepository.markAttention(captureId, "CAPTURE_COMPLETED_AFTER_TIMEOUT")
                                 }
                                 return
                             }
@@ -376,15 +449,27 @@ class StationService : LifecycleService() {
                                     captureId,
                                     Instant.ofEpochMilli(capturedAt).toString(),
                                     configuration.deviceId,
+                                    StagedCaptureContext(
+                                        selectedCamera = configuration.cameraLens.name,
+                                        cameraId = cameraId,
+                                        appliedSettings = appliedSettings,
+                                    ).toJson(),
                                 )
                             }.onFailure {
                                 if (finished.compareAndSet(false, true)) {
                                     mainHandler.removeCallbacks(watchdog)
                                     releaseWakeLock(wakeLock)
-                                    finishCapture(activeRecord, "CAPTURE_STAGE_FAILED")
+                                    finishCapture(
+                                        activeRecord.withCycleDelivery(cycleDelivery),
+                                        "CAPTURE_STAGE_FAILED",
+                                    )
                                 }
                                 return
                             }
+                            // The CameraX operation is complete and the source JPEG is durable.
+                            // Processing and delivery have their own recovery semantics, so the
+                            // camera watchdog must not race a slow palette or network operation.
+                            mainHandler.removeCallbacks(watchdog)
                             processCapturedImage(
                                 captureId = captureId,
                                 rawFile = outputFile,
@@ -397,6 +482,7 @@ class StationService : LifecycleService() {
                                 finished = finished,
                                 watchdog = watchdog,
                                 wakeLock = wakeLock,
+                                cycleDelivery = cycleDelivery,
                             )
                         }
 
@@ -406,7 +492,10 @@ class StationService : LifecycleService() {
                             cameraProvider?.unbindAll()
                             captureRepository.abandon(captureId)
                             releaseWakeLock(wakeLock)
-                            finishCapture(activeRecord, "CAMERA_CAPTURE_${exception.imageCaptureError}")
+                            finishCapture(
+                                activeRecord.withCycleDelivery(cycleDelivery),
+                                "CAMERA_CAPTURE_${exception.imageCaptureError}",
+                            )
                         }
                     },
                 )
@@ -416,7 +505,10 @@ class StationService : LifecycleService() {
                     cameraProvider?.unbindAll()
                     captureRepository.abandon(captureId)
                     releaseWakeLock(wakeLock)
-                    finishCapture(activeRecord, "CAMERA_BIND_FAILED")
+                    finishCapture(
+                        activeRecord.withCycleDelivery(cycleDelivery),
+                        "CAMERA_BIND_FAILED",
+                    )
                 }
             }
         }, ContextCompat.getMainExecutor(this))
@@ -434,137 +526,69 @@ class StationService : LifecycleService() {
         finished: AtomicBoolean,
         watchdog: Runnable,
         wakeLock: PowerManager.WakeLock,
+        cycleDelivery: CycleDeliveryState,
     ) {
         runCatching { captureRepository.markProcessing(captureId) }
             .onFailure {
-                captureRepository.markAttention(captureId, "PROCESSING_STATE_FAILED")
                 if (finished.compareAndSet(false, true)) {
                     mainHandler.removeCallbacks(watchdog)
                     releaseWakeLock(wakeLock)
-                    finishCapture(record, "PROCESSING_STATE_FAILED")
+                    finishCapture(
+                        record.withCycleDelivery(cycleDelivery),
+                        "PROCESSING_STATE_FAILED",
+                    )
                 }
                 return
-            }
+        }
         processingExecutor.execute {
             val processingStartedAt = SystemClock.elapsedRealtime()
-            val normalizedTemp = captureRepository.normalizedTempFile(captureId)
-            val normalization = runCatching {
-                imageNormalizer.normalize(
-                    source = rawFile,
-                    destination = normalizedTemp,
-                    maximumDimension = configuration.maxImageDimension,
-                    jpegQuality = configuration.jpegQuality,
+            val completion = runCatching {
+                finalizeProcessedCapture(
+                    processed = processStagedWork(
+                        captureId = captureId,
+                        rawFile = rawFile,
+                        capturedAt = capturedAt,
+                        deviceId = configuration.deviceId,
+                        configuration = configuration,
+                        stagedContext = StagedCaptureContext(
+                            selectedCamera = selectedCamera,
+                            cameraId = cameraId,
+                            appliedSettings = appliedSettings,
+                        ),
+                    ),
+                    configuration = configuration,
+                    cycleDelivery = cycleDelivery,
                 )
             }
             if (!finished.compareAndSet(false, true)) {
-                captureRepository.abandon(captureId)
+                runCatching { captureRepository.returnToStaged(captureId, "PROCESS_INTERRUPTED_RECOVERABLE") }
                 return@execute
             }
-            mainHandler.removeCallbacks(watchdog)
-            val completion = normalization.mapCatching { image ->
-                val paletteAttempt = runCatching {
-                    paletteExtractor.extract(
-                        sourceFile = normalizedTemp,
-                        requestedColors = configuration.paletteColors,
-                        analysisDimension = configuration.paletteAnalysisDimension,
-                        masks = skyMasks,
-                    )
-                }
-                val processingDurationMs = SystemClock.elapsedRealtime() - processingStartedAt
-                val paletteResult = paletteAttempt.getOrNull()
-                val paletteErrorCode = paletteAttempt.exceptionOrNull()?.let { error ->
-                    if (error is PaletteExtractionException) error.code else "PALETTE_EXTRACTION_FAILED"
-                }
-                val metadata = ProductionCaptureMetadata(
-                    captureId = captureId,
-                    capturedAt = Instant.ofEpochMilli(capturedAt).toString(),
-                    deviceId = configuration.deviceId,
-                    sourceDimensions = image.sourceDimensions,
-                    finalDimensions = image.finalDimensions,
-                    byteCount = image.byteCount,
-                    selectedCamera = selectedCamera,
-                    cameraId = cameraId,
-                    jpegQuality = configuration.jpegQuality,
-                    maximumDimension = configuration.maxImageDimension,
-                    sourceExifOrientation = image.sourceExifOrientation,
-                    cameraSettings = appliedSettings,
-                    processingDurationMs = processingDurationMs,
-                    palette = paletteResult?.palette,
-                    paletteStatistics = paletteResult?.statistics,
-                    paletteErrorCode = paletteErrorCode,
-                )
-                captureRepository.commit(normalizedTemp, metadata)
-                val delivery = if (paletteErrorCode == null) {
-                    drainOutbox(configuration)
-                } else {
-                    null
-                }
-                val finalFile = captureRepository.record(captureId)?.imagePath?.let(::File)
-                    ?: throw IllegalStateException("Committed capture disappeared from the outbox")
-                ProcessedCapture(
-                    image = image,
-                    finalFile = finalFile,
-                    palette = paletteResult,
-                    paletteErrorCode = paletteErrorCode,
-                    processingDurationMs = processingDurationMs,
-                    delivery = delivery,
-                )
+            completion.exceptionOrNull()?.let { error ->
+                val code = processingErrorCode(error)
+                runCatching { captureRepository.returnToStaged(captureId, code) }
             }
-            rawFile.delete()
 
             mainHandler.post {
                 releaseWakeLock(wakeLock)
                 completion.fold(
                     onSuccess = { completed ->
-                        val completedAt = System.currentTimeMillis()
-                        val paletteStatistics = completed.palette?.statistics
-                        diagnostics.complete(
-                            record.copy(
-                                capturedAt = capturedAt,
-                                completedAt = completedAt,
-                                result = if (completed.paletteErrorCode == null) {
-                                    CaptureDiagnostic.RESULT_SUCCESS
-                                } else {
-                                    "ERROR"
-                                },
-                                errorCode = completed.paletteErrorCode,
-                                imagePath = completed.finalFile.absolutePath,
-                                imageBytes = completed.image.byteCount,
-                                sourceWidth = completed.image.sourceDimensions.width,
-                                sourceHeight = completed.image.sourceDimensions.height,
-                                width = completed.image.finalDimensions.width,
-                                height = completed.image.finalDimensions.height,
-                                processingDurationMs = completed.processingDurationMs,
-                                cameraSettings = appliedSettings.diagnosticSummary(),
-                                palette = completed.palette?.palette?.toJson(),
-                                paletteSize = paletteStatistics?.paletteColors,
-                                paletteAnalysisWidth = paletteStatistics?.analysisSize?.width,
-                                paletteAnalysisHeight = paletteStatistics?.analysisSize?.height,
-                                paletteIncludedPixels = paletteStatistics?.includedPixels,
-                                paletteDurationMs = paletteStatistics?.elapsedMs,
-                                palettePeakPssKib = paletteStatistics?.peakPssKib,
-                            ).withDelivery(completed.delivery),
+                        completeProcessedCapture(
+                            record = record,
+                            capturedAt = capturedAt,
+                            appliedSettings = appliedSettings,
+                            completed = completed,
+                            result = CaptureDiagnostic.RESULT_SUCCESS,
                         )
-                        preferences.setLastCapture(capturedAt)
-                        completed.paletteErrorCode?.let(preferences::setLastError)
-                        completed.delivery?.let(::applyDeliveryStatus)
-                        captureInProgress.set(false)
-                        updateNotification()
-                        stopIfManualOnly()
                     },
                     onFailure = { error ->
-                        captureRepository.abandon(captureId)
-                        val code = if (error is CaptureProcessingException) {
-                            error.code
-                        } else {
-                            "CAPTURE_COMMIT_FAILED"
-                        }
+                        val code = processingErrorCode(error)
                         finishCapture(
                             record.copy(
                                 capturedAt = capturedAt,
                                 processingDurationMs = SystemClock.elapsedRealtime() - processingStartedAt,
                                 cameraSettings = appliedSettings.diagnosticSummary(),
-                            ),
+                            ).withCycleDelivery(cycleDelivery),
                             code,
                         )
                     },
@@ -573,36 +597,302 @@ class StationService : LifecycleService() {
         }
     }
 
-    private data class ProcessedCapture(
+    private fun processStagedWork(
+        captureId: String,
+        rawFile: File,
+        capturedAt: Long,
+        deviceId: String,
+        configuration: AppConfiguration,
+        stagedContext: StagedCaptureContext,
+    ): LocalProcessedCapture {
+        val processingStartedAt = SystemClock.elapsedRealtime()
+        val normalizedTemp = captureRepository.normalizedTempFile(captureId)
+        val image = imageNormalizer.normalize(
+            source = rawFile,
+            destination = normalizedTemp,
+            maximumDimension = configuration.maxImageDimension,
+            jpegQuality = configuration.jpegQuality,
+        )
+        val paletteResult = paletteExtractor.extract(
+            sourceFile = normalizedTemp,
+            requestedColors = configuration.paletteColors,
+            analysisDimension = configuration.paletteAnalysisDimension,
+            masks = skyMasks,
+        )
+        val processingDurationMs = SystemClock.elapsedRealtime() - processingStartedAt
+        captureRepository.commit(
+            normalizedTemp,
+            ProductionCaptureMetadata(
+                captureId = captureId,
+                capturedAt = Instant.ofEpochMilli(capturedAt).toString(),
+                deviceId = deviceId,
+                sourceDimensions = image.sourceDimensions,
+                finalDimensions = image.finalDimensions,
+                byteCount = image.byteCount,
+                selectedCamera = stagedContext.selectedCamera,
+                cameraId = stagedContext.cameraId,
+                jpegQuality = configuration.jpegQuality,
+                maximumDimension = configuration.maxImageDimension,
+                sourceExifOrientation = image.sourceExifOrientation,
+                cameraSettings = stagedContext.appliedSettings,
+                processingDurationMs = processingDurationMs,
+                palette = paletteResult.palette,
+                paletteStatistics = paletteResult.statistics,
+            ),
+        )
+        val finalFile = captureRepository.record(captureId)?.imagePath?.let(::File)
+            ?: throw IllegalStateException("Committed capture disappeared from the outbox")
+        return LocalProcessedCapture(
+            image = image,
+            finalFile = finalFile,
+            palette = paletteResult,
+            processingDurationMs = processingDurationMs,
+        )
+    }
+
+    private fun recoverStagedCapture(
+        record: CaptureDiagnostic,
+        staged: DurableCaptureRecord,
+        configuration: AppConfiguration,
+        cycleDelivery: CycleDeliveryState,
+    ) {
+        val capturedAt = runCatching { Instant.parse(staged.capturedAt).toEpochMilli() }
+            .getOrElse {
+                captureRepository.markAttention(staged.captureId, "STAGED_TIMESTAMP_INVALID")
+                finishCapture(record.withCycleDelivery(cycleDelivery), "STAGED_TIMESTAMP_INVALID")
+                return
+            }
+        val context = StagedCaptureContext.fromJsonOrFallback(
+            staged.processingMetadataJson,
+            configuration.cameraLens.name,
+        )
+        val recoveryRecord = record.copy(
+            captureId = staged.captureId,
+            capturedAt = capturedAt,
+            imagePath = staged.imagePath,
+            imageBytes = staged.byteCount,
+            cameraSettings = context.appliedSettings.diagnosticSummary(),
+            cycleAction = ProductionCycleAction.RECOVER_STAGED.name,
+            recoveredStagedCaptureId = staged.captureId,
+        )
+        runCatching { captureRepository.markProcessing(staged.captureId) }
+            .onFailure {
+                finishCapture(
+                    recoveryRecord.withCycleDelivery(cycleDelivery),
+                    "PROCESSING_STATE_FAILED",
+                )
+                return
+            }
+        val wakeLock = getSystemService(PowerManager::class.java).newWakeLock(
+            PowerManager.PARTIAL_WAKE_LOCK,
+            "$packageName:staged-recovery",
+        ).apply {
+            setReferenceCounted(false)
+            acquire(WAKE_LOCK_TIMEOUT_MS)
+        }
+        processingExecutor.execute {
+            val processing = runCatching {
+                processStagedWork(
+                    captureId = staged.captureId,
+                    rawFile = File(staged.imagePath),
+                    capturedAt = capturedAt,
+                    deviceId = staged.deviceId,
+                    configuration = configuration,
+                    stagedContext = context,
+                )
+            }
+            processing.exceptionOrNull()?.let { error ->
+                runCatching {
+                    captureRepository.returnToStaged(staged.captureId, processingErrorCode(error))
+                }
+            }
+            val next = processing.mapCatching { recovered ->
+                val summary = captureRepository.summary()
+                if (ProductionCyclePolicy.shouldCaptureAfterRecovery(
+                        summary.pending,
+                        configuration.maxPendingCaptures,
+                    )
+                ) {
+                    RecoveryCompletion.ContinueWithCapture
+                } else {
+                    RecoveryCompletion.Complete(
+                        finalizeProcessedCapture(recovered, configuration, cycleDelivery),
+                    )
+                }
+            }
+            mainHandler.post {
+                releaseWakeLock(wakeLock)
+                next.fold(
+                    onSuccess = { completion ->
+                        when (completion) {
+                            RecoveryCompletion.ContinueWithCapture -> startCameraCapture(
+                                record = record.copy(
+                                    cycleAction = ProductionCycleAction.CAPTURE_NEW.name,
+                                    recoveredStagedCaptureId = staged.captureId,
+                                ),
+                                configuration = configuration,
+                                cycleDelivery = cycleDelivery,
+                            )
+                            is RecoveryCompletion.Complete -> completeProcessedCapture(
+                                record = recoveryRecord,
+                                capturedAt = capturedAt,
+                                appliedSettings = context.appliedSettings,
+                                completed = completion.capture,
+                                result = "RECOVERED_STAGED",
+                            )
+                        }
+                    },
+                    onFailure = { error ->
+                        finishCapture(
+                            recoveryRecord.withCycleDelivery(cycleDelivery),
+                            processingErrorCode(error),
+                        )
+                    },
+                )
+            }
+        }
+    }
+
+    private data class LocalProcessedCapture(
         val image: ImageNormalizationResult,
         val finalFile: File,
         val palette: PaletteExtractionResult?,
-        val paletteErrorCode: String?,
         val processingDurationMs: Long,
-        val delivery: DeliveryCycleSummary?,
     )
 
-    private fun drainBeforeBackpressure(record: CaptureDiagnostic, configuration: AppConfiguration) {
-        if (!captureInProgress.compareAndSet(false, true)) {
-            diagnostics.complete(
-                record.copy(
-                    completedAt = System.currentTimeMillis(),
-                    result = "SKIPPED",
-                    errorCode = "OVERLAP_PREVENTED",
-                ),
-            )
-            preferences.setLastError("OVERLAP_PREVENTED")
-            return
+    private data class ProcessedCapture(
+        val local: LocalProcessedCapture,
+        val delivery: DeliveryCycleSummary,
+        val postUploadAttempted: Int,
+        val retentionRemoved: Int,
+        val finalSummary: OutboxSummary,
+    )
+
+    private sealed interface RecoveryCompletion {
+        data object ContinueWithCapture : RecoveryCompletion
+        data class Complete(val capture: ProcessedCapture) : RecoveryCompletion
+    }
+
+    private fun finalizeProcessedCapture(
+        processed: LocalProcessedCapture,
+        configuration: AppConfiguration,
+        cycleDelivery: CycleDeliveryState,
+    ): ProcessedCapture {
+        val postUpload = if (cycleDelivery.remainingBudget > 0) {
+            drainOutbox(configuration, cycleDelivery.remainingBudget)
+        } else {
+            null
         }
-        diagnostics.begin(record)
+        return ProcessedCapture(
+            local = processed,
+            delivery = cycleDelivery.combinedWith(postUpload),
+            postUploadAttempted = postUpload?.attempted ?: 0,
+            retentionRemoved = applyRetention(configuration),
+            finalSummary = captureRepository.summary(),
+        )
+    }
+
+    private data class CyclePreflight(
+        val preUpload: DeliveryCycleSummary,
+        val staged: DurableCaptureRecord?,
+        val plan: ProductionCyclePlan,
+    )
+
+    private data class CycleDeliveryState(
+        val preUpload: DeliveryCycleSummary,
+        val remainingBudget: Int,
+    ) {
+        fun combinedWith(postUpload: DeliveryCycleSummary?): DeliveryCycleSummary {
+            if (postUpload == null) return preUpload
+            return DeliveryCycleSummary(
+                attempted = preUpload.attempted + postUpload.attempted,
+                delivered = preUpload.delivered + postUpload.delivered,
+                retried = preUpload.retried + postUpload.retried,
+                attentionRequired = preUpload.attentionRequired + postUpload.attentionRequired,
+                deferred = postUpload.deferred,
+                pendingAfter = postUpload.pendingAfter,
+                notificationRequired = preUpload.notificationRequired || postUpload.notificationRequired,
+                cycleErrorCode = postUpload.cycleErrorCode ?: preUpload.cycleErrorCode,
+                lastAttemptErrorCode = postUpload.lastAttemptErrorCode ?: preUpload.lastAttemptErrorCode,
+            )
+        }
+    }
+
+    private fun completeProcessedCapture(
+        record: CaptureDiagnostic,
+        capturedAt: Long,
+        appliedSettings: AppliedCameraSettings,
+        completed: ProcessedCapture,
+        result: String,
+    ) {
+        val paletteStatistics = completed.local.palette?.statistics
+        diagnostics.complete(
+            record.copy(
+                capturedAt = capturedAt,
+                completedAt = System.currentTimeMillis(),
+                result = result,
+                errorCode = null,
+                imagePath = completed.local.finalFile.absolutePath,
+                imageBytes = completed.local.image.byteCount,
+                sourceWidth = completed.local.image.sourceDimensions.width,
+                sourceHeight = completed.local.image.sourceDimensions.height,
+                width = completed.local.image.finalDimensions.width,
+                height = completed.local.image.finalDimensions.height,
+                processingDurationMs = completed.local.processingDurationMs,
+                cameraSettings = appliedSettings.diagnosticSummary(),
+                palette = completed.local.palette?.palette?.toJson(),
+                paletteSize = paletteStatistics?.paletteColors,
+                paletteAnalysisWidth = paletteStatistics?.analysisSize?.width,
+                paletteAnalysisHeight = paletteStatistics?.analysisSize?.height,
+                paletteIncludedPixels = paletteStatistics?.includedPixels,
+                paletteDurationMs = paletteStatistics?.elapsedMs,
+                palettePeakPssKib = paletteStatistics?.peakPssKib,
+                preUploadAttempted = completed.delivery.attempted - completed.postUploadAttempted,
+                postUploadAttempted = completed.postUploadAttempted,
+                retentionRemoved = completed.retentionRemoved,
+                outboxStagedAfterCycle = completed.finalSummary.staged,
+                outboxPendingAfterCycle = completed.finalSummary.pending,
+            ).withDelivery(completed.delivery),
+        )
+        if (result == CaptureDiagnostic.RESULT_SUCCESS) preferences.setLastCapture(capturedAt)
+        applyDeliveryStatus(completed.delivery)
+        captureInProgress.set(false)
+        updateNotification()
+        stopIfManualOnly()
+    }
+
+    private fun CaptureDiagnostic.withCycleDelivery(
+        delivery: CycleDeliveryState,
+    ): CaptureDiagnostic = copy(
+        preUploadAttempted = delivery.preUpload.attempted,
+    ).withDelivery(delivery.preUpload)
+
+    private fun finishBackpressureCycle(
+        record: CaptureDiagnostic,
+        configuration: AppConfiguration,
+        cycleDelivery: CycleDeliveryState,
+    ) {
         processingExecutor.execute {
-            val delivery = drainOutbox(configuration)
+            val postUpload = if (cycleDelivery.remainingBudget > 0) {
+                drainOutbox(configuration, cycleDelivery.remainingBudget)
+            } else {
+                null
+            }
+            val delivery = cycleDelivery.combinedWith(postUpload)
+            val retentionRemoved = applyRetention(configuration)
+            val finalSummary = captureRepository.summary()
             mainHandler.post {
                 diagnostics.complete(
                     record.copy(
                         completedAt = System.currentTimeMillis(),
                         result = "SKIPPED",
                         errorCode = "OUTBOX_BACKPRESSURE",
+                        cycleAction = ProductionCycleAction.BACKPRESSURE.name,
+                        preUploadAttempted = cycleDelivery.preUpload.attempted,
+                        postUploadAttempted = postUpload?.attempted ?: 0,
+                        retentionRemoved = retentionRemoved,
+                        outboxStagedAfterCycle = finalSummary.staged,
+                        outboxPendingAfterCycle = finalSummary.pending,
                     ).withDelivery(delivery),
                 )
                 applyDeliveryStatus(delivery, "OUTBOX_BACKPRESSURE")
@@ -611,6 +901,21 @@ class StationService : LifecycleService() {
                 stopIfManualOnly()
             }
         }
+    }
+
+    private fun preserveOrAbandonCapture(captureId: String, errorCode: String) {
+        val record = runCatching { captureRepository.record(captureId) }.getOrNull()
+        if (record != null && File(record.imagePath).isFile) {
+            runCatching { captureRepository.returnToStaged(captureId, errorCode) }
+        } else {
+            captureRepository.abandon(captureId)
+        }
+    }
+
+    private fun processingErrorCode(error: Throwable): String = when (error) {
+        is PaletteExtractionException -> error.code
+        is CaptureProcessingException -> error.code
+        else -> "CAPTURE_COMMIT_FAILED"
     }
 
     private fun recordOutboxInitializationFailure(
@@ -678,6 +983,7 @@ class StationService : LifecycleService() {
         updateNotification()
         processingExecutor.execute {
             val delivery = drainOutbox(configuration)
+            applyRetention(configuration)
             mainHandler.post {
                 applyDeliveryStatus(delivery)
                 captureInProgress.set(false)
@@ -687,10 +993,16 @@ class StationService : LifecycleService() {
         }
     }
 
-    private fun drainOutbox(configuration: AppConfiguration): DeliveryCycleSummary {
+    private fun drainOutbox(
+        configuration: AppConfiguration,
+        uploadLimit: Int = configuration.maxUploadsPerCycle,
+        timeoutSeconds: Int = configuration.requestTimeoutSeconds,
+    ): DeliveryCycleSummary {
         uploadInProgress.set(true)
         val wakeLock = acquireUploadWakeLock(configuration)
         return try {
+            if (uploadLimit <= 0) return noAttemptDelivery()
+            if (!networkAvailable()) return noAttemptDelivery("NETWORK_UNAVAILABLE")
             val endpoint = runCatching {
                 EndpointPolicy.resolve(
                     BuildConfig.INGEST_ENDPOINT,
@@ -701,16 +1013,15 @@ class StationService : LifecycleService() {
                 return deliveryFailure("INGEST_ENDPOINT_INVALID")
             }
             runCatching {
-                deliveryCoordinator.drain(endpoint, configuration.deliverySettings())
+                deliveryCoordinator.drain(
+                    endpoint,
+                    configuration.deliverySettings().copy(
+                        maxUploadsPerCycle = uploadLimit,
+                        requestTimeoutSeconds = timeoutSeconds,
+                    ),
+                )
             }.getOrElse {
                 deliveryFailure("OUTBOX_DELIVERY_FAILED")
-            }.also {
-                runCatching {
-                    captureRepository.applyDeliveredRetention(
-                        configuration.retentionDays,
-                        configuration.retentionCount,
-                    )
-                }
             }
         } finally {
             releaseWakeLock(wakeLock)
@@ -723,6 +1034,26 @@ class StationService : LifecycleService() {
         return DeliveryCycleSummary(0, 0, 0, 0, pending, pending, true, code)
     }
 
+    private fun noAttemptDelivery(code: String? = null): DeliveryCycleSummary {
+        val pending = runCatching { captureRepository.summary().pending }.getOrDefault(0)
+        return DeliveryCycleSummary(0, 0, 0, 0, pending, pending, false, code)
+    }
+
+    private fun applyRetention(configuration: AppConfiguration): Int = runCatching {
+        captureRepository.applyDeliveredRetention(
+            configuration.retentionDays,
+            configuration.retentionCount,
+        )
+    }.getOrDefault(0)
+
+    private fun networkAvailable(): Boolean {
+        val manager = getSystemService(ConnectivityManager::class.java)
+        val network = manager.activeNetwork ?: return false
+        val capabilities = manager.getNetworkCapabilities(network) ?: return false
+        return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+            capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+    }
+
     private fun CaptureDiagnostic.withDelivery(
         delivery: DeliveryCycleSummary?,
     ): CaptureDiagnostic = copy(
@@ -732,7 +1063,7 @@ class StationService : LifecycleService() {
         uploadAttentionRequired = delivery?.attentionRequired,
         uploadDeferred = delivery?.deferred,
         outboxPendingAfterUpload = delivery?.pendingAfter,
-        uploadErrorCode = delivery?.cycleErrorCode,
+        uploadErrorCode = delivery?.cycleErrorCode ?: delivery?.lastAttemptErrorCode,
     )
 
     private fun applyDeliveryStatus(
@@ -743,6 +1074,7 @@ class StationService : LifecycleService() {
             delivery.cycleErrorCode != null -> delivery.cycleErrorCode
             delivery.attentionRequired > 0 -> "UPLOAD_ATTENTION_REQUIRED"
             delivery.notificationRequired -> "UPLOAD_RETRY_THRESHOLD"
+            delivery.retried > 0 -> delivery.lastAttemptErrorCode ?: "UPLOAD_RETRYING"
             else -> fallbackError
         }
         if (code == null) preferences.clearLastError() else preferences.setLastError(code)
@@ -763,11 +1095,17 @@ class StationService : LifecycleService() {
 
     private fun finishCapture(record: CaptureDiagnostic, errorCode: String) {
         val completed = System.currentTimeMillis()
+        val configuration = configurationStore.load()
+        val retentionRemoved = applyRetention(configuration)
+        val finalSummary = runCatching { captureRepository.summary() }.getOrNull()
         diagnostics.complete(
             record.copy(
                 completedAt = completed,
                 result = "ERROR",
                 errorCode = errorCode,
+                retentionRemoved = record.retentionRemoved ?: retentionRemoved,
+                outboxStagedAfterCycle = finalSummary?.staged,
+                outboxPendingAfterCycle = finalSummary?.pending,
             ),
         )
         preferences.setLastError(errorCode)

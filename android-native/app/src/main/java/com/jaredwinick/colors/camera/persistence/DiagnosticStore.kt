@@ -133,6 +133,13 @@ class DiagnosticStore(context: Context) {
         putNullable("upload_deferred", uploadDeferred)
         putNullable("outbox_pending_after_upload", outboxPendingAfterUpload)
         putNullable("upload_error_code", uploadErrorCode)
+        putNullable("cycle_action", cycleAction)
+        putNullable("recovered_staged_capture_id", recoveredStagedCaptureId)
+        putNullable("pre_upload_attempted", preUploadAttempted)
+        putNullable("post_upload_attempted", postUploadAttempted)
+        putNullable("retention_removed", retentionRemoved)
+        putNullable("outbox_staged_after_cycle", outboxStagedAfterCycle)
+        putNullable("outbox_pending_after_cycle", outboxPendingAfterCycle)
         put("manual", manual)
     }
 
@@ -188,6 +195,13 @@ class DiagnosticStore(context: Context) {
         uploadDeferred = json.nullableInt("upload_deferred"),
         outboxPendingAfterUpload = json.nullableInt("outbox_pending_after_upload"),
         uploadErrorCode = json.nullableString("upload_error_code"),
+        cycleAction = json.nullableString("cycle_action"),
+        recoveredStagedCaptureId = json.nullableString("recovered_staged_capture_id"),
+        preUploadAttempted = json.nullableInt("pre_upload_attempted"),
+        postUploadAttempted = json.nullableInt("post_upload_attempted"),
+        retentionRemoved = json.nullableInt("retention_removed"),
+        outboxStagedAfterCycle = json.nullableInt("outbox_staged_after_cycle"),
+        outboxPendingAfterCycle = json.nullableInt("outbox_pending_after_cycle"),
         manual = json.optBoolean("manual"),
     )
 
