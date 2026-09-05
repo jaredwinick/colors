@@ -16,7 +16,7 @@ its production soak test.
 
 - Application name: **Colors Camera**
 - Application ID and namespace: `com.jaredwinick.colors.camera`
-- Version: `0.7.0` (`versionCode` 10)
+- Version: `0.7.1` (`versionCode` 11)
 - Capture files: app-private `files/durable-captures`
 - Diagnostics and configuration: app-private storage
 - Ingest token: encrypted with a non-exportable Android Keystore AES-GCM key
@@ -210,6 +210,11 @@ without silent deletion. Existing version-0.5 capture/metadata pairs are
 migrated into the durable store on upgrade; originals are removed only after a
 safe internal copy is committed.
 
+Capture and upload requests received while startup reconciliation is running
+wait for its final result. A successful reconciliation releases each request
+exactly once; a real startup failure records `OUTBOX_INITIALIZATION_FAILED`.
+This prevents manual-only service startup from racing queue inspection.
+
 Pending records are ordered by capture time and UUID. When the configurable
 pending limit (192 by default) is reached, new manual and scheduled captures
 pause with `OUTBOX_BACKPRESSURE`; queued work is retained indefinitely. The
@@ -384,7 +389,8 @@ Restore the known working Termux job if native development pauses:
 the intended UTC slot, trigger source, service receipt, capture start and
 completion, timing deltas, screen/power state, safe error code, and image path.
 The report also includes palette JSON, size, analysis dimensions, sampled-pixel
-count, elapsed time, and peak process memory. The ingest token and configuration
+count, elapsed time, peak process memory, and the upload pass counts and error
+code associated with each completed capture. The ingest token and configuration
 secrets are never included.
 
 **Share latest production image** opens Android's share sheet for the newest
@@ -402,8 +408,8 @@ Common error codes include `CAMERA_PERMISSION_MISSING`, `CAMERA_BIND_FAILED`,
 `PRECISION_REQUIRES_BATTERY_EXEMPTION`. Palette failures use safe codes such as
 `PALETTE_IMAGE_DECODE_FAILED`, `PALETTE_MASK_INVALID`,
 `PALETTE_QUANTIZATION_INVALID`, and `PALETTE_EXTRACTION_FAILED`. Durable-store
-codes include `OUTBOX_INITIALIZING`, `OUTBOX_INITIALIZATION_FAILED`,
-`OUTBOX_BACKPRESSURE`, `OUTBOX_INSPECTION_FAILED`,
+codes include `OUTBOX_INITIALIZATION_FAILED`, `OUTBOX_BACKPRESSURE`,
+`OUTBOX_INSPECTION_FAILED`,
 `PROCESS_INTERRUPTED_RECOVERABLE`, and `IMMUTABLE_EVIDENCE_INCONSISTENT`.
 Delivery codes include `INGEST_TOKEN_UNAVAILABLE`, `REQUEST_TIMEOUT`,
 `NETWORK_REQUEST_FAILED`, `SERVER_RETRYABLE`, `AUTHORIZATION_REJECTED`,

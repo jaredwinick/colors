@@ -38,6 +38,7 @@ import com.jaredwinick.colors.camera.network.CaptureDeliveryCoordinator
 import com.jaredwinick.colors.camera.network.DeliveryCycleSummary
 import com.jaredwinick.colors.camera.network.SecureCaptureUploader
 import com.jaredwinick.colors.camera.network.deliverySettings
+import com.jaredwinick.colors.camera.outbox.OutboxInitializationGate
 import com.jaredwinick.colors.camera.palette.PaletteExtractionException
 import com.jaredwinick.colors.camera.palette.PaletteExtractionResult
 import com.jaredwinick.colors.camera.palette.PaletteExtractor
@@ -70,7 +71,7 @@ class StationService : LifecycleService() {
     private val processingExecutor = Executors.newSingleThreadExecutor()
     private val captureInProgress = AtomicBoolean(false)
     private val uploadInProgress = AtomicBoolean(false)
-    private val outboxReady = AtomicBoolean(false)
+    private val outboxInitialization = OutboxInitializationGate()
     private val mainHandler = Handler(Looper.getMainLooper())
     private var stationWakeLock: PowerManager.WakeLock? = null
     private var precisionTimer: Runnable? = null
@@ -96,13 +97,21 @@ class StationService : LifecycleService() {
                     startupConfiguration.retentionDays,
                     startupConfiguration.retentionCount,
                 )
-            }.onSuccess {
-                outboxReady.set(true)
-                mainHandler.post(::updateNotification)
-            }.onFailure {
-                preferences.setLastError("OUTBOX_INITIALIZATION_FAILED")
-                mainHandler.post(::updateNotification)
-            }
+            }.fold(
+                onSuccess = {
+                    mainHandler.post {
+                        outboxInitialization.completeSuccessfully()
+                        updateNotification()
+                    }
+                },
+                onFailure = {
+                    mainHandler.post {
+                        preferences.setLastError("OUTBOX_INITIALIZATION_FAILED")
+                        updateNotification()
+                        outboxInitialization.completeWithFailure()
+                    }
+                },
+            )
         }
         skyMasks = SkyMaskRepository(this)
         diagnostics.recoverInterrupted()
@@ -122,7 +131,7 @@ class StationService : LifecycleService() {
                 if (preferences.enabled && preferences.precisionMode) {
                     configurePrecisionRuntime(preferences.nextCaptureAt)
                 }
-                capture(
+                requestCapture(
                     scheduledFor = intent.getLongExtra(EXTRA_SCHEDULED_FOR, System.currentTimeMillis()),
                     manual = false,
                     triggerSource = CaptureDiagnostic.TRIGGER_ALARM,
@@ -133,14 +142,14 @@ class StationService : LifecycleService() {
                     slotAlreadyClaimed = false,
                 )
             }
-            ACTION_CAPTURE_TEST -> capture(
+            ACTION_CAPTURE_TEST -> requestCapture(
                 scheduledFor = System.currentTimeMillis(),
                 manual = true,
                 triggerSource = CaptureDiagnostic.TRIGGER_MANUAL,
                 triggerReceivedAt = System.currentTimeMillis(),
                 slotAlreadyClaimed = false,
             )
-            ACTION_UPLOAD_PENDING -> uploadPendingOnly()
+            ACTION_UPLOAD_PENDING -> requestUploadPendingOnly()
             null -> if (preferences.enabled) restoreSchedule() else stopSelf()
         }
         return Service.START_STICKY
@@ -166,7 +175,7 @@ class StationService : LifecycleService() {
         stopSelf()
     }
 
-    private fun capture(
+    private fun requestCapture(
         scheduledFor: Long,
         manual: Boolean,
         triggerSource: String,
@@ -174,15 +183,43 @@ class StationService : LifecycleService() {
         slotAlreadyClaimed: Boolean,
     ) {
         val serviceReceivedAt = System.currentTimeMillis()
+        outboxInitialization.runWhenReady(
+            onReady = {
+                capture(
+                    scheduledFor = scheduledFor,
+                    manual = manual,
+                    triggerSource = triggerSource,
+                    triggerReceivedAt = triggerReceivedAt,
+                    serviceReceivedAt = serviceReceivedAt,
+                    slotAlreadyClaimed = slotAlreadyClaimed,
+                )
+            },
+            onFailure = {
+                recordOutboxInitializationFailure(
+                    scheduledFor = scheduledFor,
+                    manual = manual,
+                    triggerSource = triggerSource,
+                    triggerReceivedAt = triggerReceivedAt,
+                    serviceReceivedAt = serviceReceivedAt,
+                    slotAlreadyClaimed = slotAlreadyClaimed,
+                )
+            },
+        )
+    }
+
+    private fun capture(
+        scheduledFor: Long,
+        manual: Boolean,
+        triggerSource: String,
+        triggerReceivedAt: Long,
+        serviceReceivedAt: Long,
+        slotAlreadyClaimed: Boolean,
+    ) {
         if (!manual && !preferences.enabled) return
 
         val sessionId = if (manual) "manual" else preferences.sessionId
         val configuration = configurationStore.load()
-        val queueSummary = if (outboxReady.get()) {
-            runCatching { captureRepository.summary() }.getOrNull()
-        } else {
-            null
-        }
+        val queueSummary = runCatching { captureRepository.summary() }.getOrNull()
         val power = PowerSnapshotReader.read(this)
         val captureId = UUID.randomUUID().toString()
         val record = CaptureDiagnostic(
@@ -221,11 +258,7 @@ class StationService : LifecycleService() {
         }
 
         if (queueSummary == null) {
-            val code = if (outboxReady.get()) {
-                "OUTBOX_INSPECTION_FAILED"
-            } else {
-                "OUTBOX_INITIALIZING"
-            }
+            val code = "OUTBOX_INSPECTION_FAILED"
             diagnostics.complete(
                 record.copy(
                     completedAt = System.currentTimeMillis(),
@@ -510,7 +543,7 @@ class StationService : LifecycleService() {
                                 paletteIncludedPixels = paletteStatistics?.includedPixels,
                                 paletteDurationMs = paletteStatistics?.elapsedMs,
                                 palettePeakPssKib = paletteStatistics?.peakPssKib,
-                            ),
+                            ).withDelivery(completed.delivery),
                         )
                         preferences.setLastCapture(capturedAt)
                         completed.paletteErrorCode?.let(preferences::setLastError)
@@ -570,7 +603,7 @@ class StationService : LifecycleService() {
                         completedAt = System.currentTimeMillis(),
                         result = "SKIPPED",
                         errorCode = "OUTBOX_BACKPRESSURE",
-                    ),
+                    ).withDelivery(delivery),
                 )
                 applyDeliveryStatus(delivery, "OUTBOX_BACKPRESSURE")
                 captureInProgress.set(false)
@@ -580,13 +613,61 @@ class StationService : LifecycleService() {
         }
     }
 
+    private fun recordOutboxInitializationFailure(
+        scheduledFor: Long,
+        manual: Boolean,
+        triggerSource: String,
+        triggerReceivedAt: Long,
+        serviceReceivedAt: Long,
+        slotAlreadyClaimed: Boolean,
+    ) {
+        if (!manual && !preferences.enabled) return
+        val captureId = UUID.randomUUID().toString()
+        val power = PowerSnapshotReader.read(this)
+        val duplicate = !manual && !slotAlreadyClaimed &&
+            !preferences.claimScheduledSlot(scheduledFor)
+        val code = if (duplicate) "DUPLICATE_SLOT" else "OUTBOX_INITIALIZATION_FAILED"
+        diagnostics.complete(
+            CaptureDiagnostic(
+                recordId = captureId,
+                captureId = captureId,
+                sessionId = if (manual) "manual" else preferences.sessionId,
+                slotId = if (manual) "manual-$serviceReceivedAt" else "utc-$scheduledFor",
+                scheduledFor = scheduledFor,
+                alarmReceivedAt = triggerReceivedAt,
+                serviceReceivedAt = serviceReceivedAt,
+                completedAt = System.currentTimeMillis(),
+                result = "SKIPPED",
+                errorCode = code,
+                screenInteractive = power.screenInteractive,
+                charging = power.charging,
+                plugged = power.plugged,
+                batteryPercent = power.batteryPercent,
+                deviceIdleMode = power.deviceIdleMode,
+                powerSaveMode = power.powerSaveMode,
+                batteryOptimizationExempt = power.batteryOptimizationExempt,
+                stationWakeLockHeld = stationWakeLock?.isHeld == true,
+                triggerSource = triggerSource,
+                manual = manual,
+            ),
+        )
+        if (!duplicate) preferences.setLastError(code)
+        updateNotification()
+        stopIfManualOnly()
+    }
+
+    private fun requestUploadPendingOnly() {
+        outboxInitialization.runWhenReady(
+            onReady = ::uploadPendingOnly,
+            onFailure = {
+                preferences.setLastError("OUTBOX_INITIALIZATION_FAILED")
+                updateNotification()
+                stopIfManualOnly()
+            },
+        )
+    }
+
     private fun uploadPendingOnly() {
-        if (!outboxReady.get()) {
-            preferences.setLastError("OUTBOX_INITIALIZING")
-            updateNotification()
-            stopIfManualOnly()
-            return
-        }
         if (!captureInProgress.compareAndSet(false, true)) {
             preferences.setLastError("OVERLAP_PREVENTED")
             updateNotification()
@@ -641,6 +722,18 @@ class StationService : LifecycleService() {
         val pending = runCatching { captureRepository.summary().pending }.getOrDefault(0)
         return DeliveryCycleSummary(0, 0, 0, 0, pending, pending, true, code)
     }
+
+    private fun CaptureDiagnostic.withDelivery(
+        delivery: DeliveryCycleSummary?,
+    ): CaptureDiagnostic = copy(
+        uploadAttempted = delivery?.attempted,
+        uploadDelivered = delivery?.delivered,
+        uploadRetried = delivery?.retried,
+        uploadAttentionRequired = delivery?.attentionRequired,
+        uploadDeferred = delivery?.deferred,
+        outboxPendingAfterUpload = delivery?.pendingAfter,
+        uploadErrorCode = delivery?.cycleErrorCode,
+    )
 
     private fun applyDeliveryStatus(
         delivery: DeliveryCycleSummary,
@@ -763,7 +856,7 @@ class StationService : LifecycleService() {
         // Own the slot before touching AlarmManager. A fallback alarm that is
         // already being delivered will therefore observe this claim and exit.
         if (!preferences.claimScheduledSlot(scheduledFor)) {
-            capture(
+            requestCapture(
                 scheduledFor = scheduledFor,
                 manual = false,
                 triggerSource = CaptureDiagnostic.TRIGGER_TIMER,
@@ -782,7 +875,7 @@ class StationService : LifecycleService() {
         }.onSuccess(::configurePrecisionRuntime)
             .onFailure { preferences.setLastError("ALARM_RESCHEDULE_FAILED") }
 
-        capture(
+        requestCapture(
             scheduledFor = scheduledFor,
             manual = false,
             triggerSource = CaptureDiagnostic.TRIGGER_TIMER,
@@ -845,6 +938,7 @@ class StationService : LifecycleService() {
     }
 
     override fun onDestroy() {
+        outboxInitialization.cancel()
         cancelPrecisionTimer()
         releaseStationWakeLock()
         processingExecutor.shutdown()

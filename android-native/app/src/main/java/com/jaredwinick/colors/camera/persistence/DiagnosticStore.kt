@@ -126,6 +126,13 @@ class DiagnosticStore(context: Context) {
         putNullable("outbox_attention", outboxAttention)
         putNullable("outbox_oldest_age_ms", outboxOldestAgeMs)
         putNullable("outbox_storage_bytes", outboxStorageBytes)
+        putNullable("upload_attempted", uploadAttempted)
+        putNullable("upload_delivered", uploadDelivered)
+        putNullable("upload_retried", uploadRetried)
+        putNullable("upload_attention_required", uploadAttentionRequired)
+        putNullable("upload_deferred", uploadDeferred)
+        putNullable("outbox_pending_after_upload", outboxPendingAfterUpload)
+        putNullable("upload_error_code", uploadErrorCode)
         put("manual", manual)
     }
 
@@ -174,6 +181,13 @@ class DiagnosticStore(context: Context) {
         outboxAttention = json.nullableInt("outbox_attention"),
         outboxOldestAgeMs = json.nullableLong("outbox_oldest_age_ms"),
         outboxStorageBytes = json.nullableLong("outbox_storage_bytes"),
+        uploadAttempted = json.nullableInt("upload_attempted"),
+        uploadDelivered = json.nullableInt("upload_delivered"),
+        uploadRetried = json.nullableInt("upload_retried"),
+        uploadAttentionRequired = json.nullableInt("upload_attention_required"),
+        uploadDeferred = json.nullableInt("upload_deferred"),
+        outboxPendingAfterUpload = json.nullableInt("outbox_pending_after_upload"),
+        uploadErrorCode = json.nullableString("upload_error_code"),
         manual = json.optBoolean("manual"),
     )
 

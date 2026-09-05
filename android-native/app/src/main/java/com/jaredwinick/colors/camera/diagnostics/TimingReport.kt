@@ -93,7 +93,9 @@ object TimingReport {
                 "source_width,source_height,width,height,processing_duration_ms,camera_settings," +
                 "palette,palette_size,palette_analysis_width,palette_analysis_height," +
                 "palette_included_pixels,palette_duration_ms,palette_peak_pss_kib," +
-                "outbox_pending,outbox_attention,outbox_oldest_age_ms,outbox_storage_bytes,manual",
+                "outbox_pending,outbox_attention,outbox_oldest_age_ms,outbox_storage_bytes," +
+                "upload_attempted,upload_delivered,upload_retried,upload_attention_required," +
+                "upload_deferred,outbox_pending_after_upload,upload_error_code,manual",
         )
         records.sortedBy { it.scheduledFor }.forEach { record ->
             appendLine(
@@ -141,6 +143,13 @@ object TimingReport {
                     record.outboxAttention ?: "",
                     record.outboxOldestAgeMs ?: "",
                     record.outboxStorageBytes ?: "",
+                    record.uploadAttempted ?: "",
+                    record.uploadDelivered ?: "",
+                    record.uploadRetried ?: "",
+                    record.uploadAttentionRequired ?: "",
+                    record.uploadDeferred ?: "",
+                    record.outboxPendingAfterUpload ?: "",
+                    record.uploadErrorCode ?: "",
                     record.manual,
                 ).joinToString(",") { csvEscape(it.toString()) },
             )
