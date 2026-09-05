@@ -7,7 +7,7 @@ Android 10 (API 29).
 
 The native app currently provides the production foundation, proven capture
 scheduler, production JPEG normalization, fixed sky-mask calibration,
-deterministic weighted palette extraction, a transactional durable capture
+deterministic hybrid palette extraction, a transactional durable capture
 outbox, secure idempotent delivery to the Cloudflare Worker, the integrated
 unattended production cycle, and native appliance operations. The Termux
 client in `android/` remains the rollback path until the native pipeline passes
@@ -17,7 +17,7 @@ its production soak test.
 
 - Application name: **Colors Camera**
 - Application ID and namespace: `com.jaredwinick.colors.camera`
-- Version: `0.9.0` (`versionCode` 13)
+- Version: `0.10.0` (`versionCode` 14)
 - Capture files: app-private `files/durable-captures`
 - Diagnostics and configuration: app-private storage
 - Ingest token: encrypted with a non-exportable Android Keystore AES-GCM key
@@ -47,7 +47,7 @@ Code is split by responsibility:
 | `ui` | Station controls and production settings |
 | `processing` | JPEG normalization |
 | `mask` | Schema-v1 validation, rasterization, durable calibration, and previews |
-| `palette` | Masked-sky sampling, deterministic weighted median cut, and previews |
+| `palette` | Masked-sky sampling, dominant/accent hybrid quantization, and previews |
 | `outbox` | SQLite capture state machine, immutable files, reconciliation, and retention |
 | `network` | Strict multipart transport, response validation, retry policy, and delivery cycles |
 
@@ -203,11 +203,19 @@ source remains staged for deterministic retry before the next new photograph.
 
 After JPEG normalization, the app reduces a working bitmap to the configured
 longest analysis edge (180 pixels by default) and samples only pixels admitted
-by the validated active sky mask. A deterministic median-cut implementation
-builds 3-10 colors without dithering, merges duplicate representatives, and
-emits uppercase `#RRGGBB` colors in descending-weight order with a stable hex
-tie-break. Weights are positive and normalized to exactly one at six-decimal
-precision, matching the Worker's existing ingest shape.
+by the validated active sky mask. The default eight-color palette uses five
+population-weighted dominant clusters plus three accent colors selected for
+perceptual distance in Oklab. A small minimum-support threshold prevents an
+isolated sensor-noise pixel from consuming an accent slot while still retaining
+small sunrise and sunset highlights. Configured palettes from three through ten
+colors always retain at least three dominant slots and use up to three accent
+slots.
+
+The deterministic implementation uses no dithering, merges duplicate
+representatives, and emits uppercase `#RRGGBB` colors in descending-weight order
+with a stable hex tie-break. Final weights are calculated by assigning every
+sampled sky pixel to its nearest selected color, then normalized to exactly one
+at six-decimal precision, matching the Worker's existing ingest shape.
 
 The complete JPEG is never altered by palette processing. Capture metadata
 stores the palette plus source/analysis dimensions, included-pixel count,

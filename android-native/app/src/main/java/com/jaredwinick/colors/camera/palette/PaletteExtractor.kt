@@ -96,7 +96,7 @@ class PaletteExtractor {
             check(includedIndex == includedPixels.size) { "Mask sample count changed unexpectedly" }
             peakPssKib = maxOf(peakPssKib, Debug.getPss().toLong())
             val palette = try {
-                MedianCutQuantizer.quantize(includedPixels, requestedColors)
+                HybridPaletteQuantizer.quantize(includedPixels, requestedColors)
             } catch (error: IllegalArgumentException) {
                 throw PaletteExtractionException(
                     "PALETTE_QUANTIZATION_INVALID",
