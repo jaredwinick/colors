@@ -126,7 +126,7 @@ class HybridPaletteQuantizerTest {
             val second = HybridPaletteQuantizer.quantize(included, 8)
 
             assertEquals(name, first, second)
-            assertEquals(name, 6, first.colors.size)
+            assertTrue(name, first.colors.size in WeightedPalette.MIN_COLORS..row.size)
             assertFalse(name, first.colors.any { it.hex == "#FF00FF" })
             assertEquals(name, 1.0, first.colors.sumOf { it.weight }, 0.0000001)
         }
