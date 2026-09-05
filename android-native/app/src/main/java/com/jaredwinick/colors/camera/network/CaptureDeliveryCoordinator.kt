@@ -35,6 +35,7 @@ data class DeliveryCycleSummary(
     val pendingAfter: Int,
     val notificationRequired: Boolean,
     val cycleErrorCode: String? = null,
+    val lastAttemptErrorCode: String? = null,
 )
 
 class CaptureDeliveryCoordinator(
@@ -70,6 +71,7 @@ class CaptureDeliveryCoordinator(
         var retried = 0
         var attention = 0
         var notify = false
+        var lastAttemptErrorCode: String? = null
         eligible.forEach { record ->
             when (
                 val result = transport.upload(
@@ -92,11 +94,13 @@ class CaptureDeliveryCoordinator(
                         now,
                     )
                     retried += 1
+                    lastAttemptErrorCode = result.errorCode
                     notify = notify || updated.attemptCount >= settings.notifyAfterAttempts
                 }
                 is UploadAttemptResult.Attention -> {
                     captures.markDeliveryAttention(record.captureId, result.errorCode, now)
                     attention += 1
+                    lastAttemptErrorCode = result.errorCode
                     notify = true
                 }
             }
@@ -110,6 +114,7 @@ class CaptureDeliveryCoordinator(
             deferred = (allPending - eligible.size).coerceAtLeast(0),
             pendingAfter = pendingAfter,
             notificationRequired = notify,
+            lastAttemptErrorCode = lastAttemptErrorCode,
         )
     }
 

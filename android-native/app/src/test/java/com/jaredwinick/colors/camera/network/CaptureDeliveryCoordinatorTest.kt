@@ -56,6 +56,7 @@ class CaptureDeliveryCoordinatorTest {
         val third = coordinator.drain(ENDPOINT, settings(), start.plusSeconds(180))
 
         assertFalse(first.notificationRequired)
+        assertEquals("SERVER_RETRYABLE", first.lastAttemptErrorCode)
         assertEquals(1, deferred.deferred)
         assertEquals(0, deferred.attempted)
         assertFalse(second.notificationRequired)
@@ -80,6 +81,7 @@ class CaptureDeliveryCoordinatorTest {
         assertEquals(1, summary.attentionRequired)
         assertEquals(0, summary.pendingAfter)
         assertTrue(summary.notificationRequired)
+        assertEquals("IDEMPOTENCY_CONFLICT", summary.lastAttemptErrorCode)
         assertEquals(DurableCaptureState.ATTENTION_REQUIRED, queue.records.single().state)
         assertEquals("IDEMPOTENCY_CONFLICT", queue.records.single().lastErrorCode)
     }

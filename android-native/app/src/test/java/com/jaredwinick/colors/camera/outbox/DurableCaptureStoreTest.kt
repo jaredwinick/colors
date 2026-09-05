@@ -46,6 +46,7 @@ class DurableCaptureStoreTest {
         val raw = store.rawFile(captureId).apply { writeBytes(jpeg(1)) }
         store.recordStaged(captureId, "2026-09-01T12:00:00Z", DEVICE_ID)
         store.markProcessing(captureId)
+        val interruptedOutput = store.normalizedTempFile(captureId).apply { writeBytes(jpeg(2)) }
         store.close()
 
         store = DurableCaptureStore(context, rootName, databaseName)
@@ -55,6 +56,47 @@ class DurableCaptureStoreTest {
         assertTrue(raw.isFile)
         assertEquals(1, store.summary().staged)
         assertEquals(0, store.summary().attentionRequired)
+    }
+
+    @Test
+    fun `processing failure returns source to staged with context for the next cycle`() {
+        val captureId = UUID.randomUUID().toString()
+        val contextJson = """{"kind":"staged_capture_context","schema_version":1}"""
+        val raw = store.rawFile(captureId).apply { writeBytes(jpeg(21)) }
+        store.recordStaged(
+            captureId,
+            "2026-09-01T12:00:00Z",
+            DEVICE_ID,
+            stagingMetadataJson = contextJson,
+        )
+        store.markProcessing(captureId)
+        store.normalizedTempFile(captureId).writeBytes(jpeg(22))
+
+        val returned = store.returnToStaged(captureId, "PALETTE_MASK_INVALID")
+
+        assertEquals(DurableCaptureState.STAGED, returned.state)
+        assertEquals("PALETTE_MASK_INVALID", returned.lastErrorCode)
+        assertEquals(contextJson, returned.processingMetadataJson)
+        assertTrue(raw.isFile)
+        assertFalse(interruptedOutput.exists())
+        assertFalse(store.normalizedTempFile(captureId).exists())
+    }
+
+    @Test
+    fun `oldest staged work is deterministic`() {
+        val later = "ffffffff-ffff-4fff-8fff-ffffffffffff"
+        val tieSecond = "00000000-0000-4000-8000-000000000002"
+        val tieFirst = "00000000-0000-4000-8000-000000000001"
+        listOf(
+            Triple(later, "2026-09-01T12:05:00Z", 31),
+            Triple(tieSecond, "2026-09-01T12:00:00Z", 32),
+            Triple(tieFirst, "2026-09-01T12:00:00Z", 33),
+        ).forEach { (captureId, capturedAt, marker) ->
+            store.rawFile(captureId).writeBytes(jpeg(marker))
+            store.recordStaged(captureId, capturedAt, DEVICE_ID)
+        }
+
+        assertEquals(tieFirst, store.oldestStaged()?.captureId)
     }
 
     @Test

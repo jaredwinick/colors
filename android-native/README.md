@@ -8,7 +8,8 @@ Android 10 (API 29).
 The native app currently provides the production foundation, proven capture
 scheduler, production JPEG normalization, fixed sky-mask calibration,
 deterministic weighted palette extraction, a transactional durable capture
-outbox, and secure idempotent delivery to the Cloudflare Worker. The Termux
+outbox, secure idempotent delivery to the Cloudflare Worker, and the integrated
+unattended production cycle. The Termux
 client in `android/` remains the rollback path until the native pipeline passes
 its production soak test.
 
@@ -16,7 +17,7 @@ its production soak test.
 
 - Application name: **Colors Camera**
 - Application ID and namespace: `com.jaredwinick.colors.camera`
-- Version: `0.7.1` (`versionCode` 11)
+- Version: `0.8.0` (`versionCode` 12)
 - Capture files: app-private `files/durable-captures`
 - Diagnostics and configuration: app-private storage
 - Ingest token: encrypted with a non-exportable Android Keystore AES-GCM key
@@ -55,6 +56,32 @@ service holds a partial wake lock in precision mode, an in-process timer owns
 each UTC slot, and a uniquely identified exact alarm remains five seconds
 behind it as a recovery fallback. Each next capture is calculated from a UTC
 wall-clock boundary rather than the previous completion time.
+
+## Unattended production cycle
+
+One non-overlap guard covers camera, processing, queue, and network work for a
+UTC slot. Each manual or scheduled cycle performs these operations in order:
+
+1. claim the intended slot and make one short, oldest-first upload attempt;
+2. process the oldest interrupted `STAGED` source before creating new work;
+3. when capacity remains, capture at most one new full-frame JPEG;
+4. normalize it, validate the active mask, extract the palette, and atomically
+   commit the immutable JPEG and metadata to `PENDING_UPLOAD`;
+5. spend the remaining configured upload budget oldest-first; and
+6. apply delivered-file retention and persist only safe counts and error codes.
+
+The pre-capture network attempt is capped at one item and ten seconds so upload
+recovery cannot consume the camera slot's timing envelope. When Android reports
+no validated network, both upload passes return immediately while camera,
+masking, palette extraction, and durable queueing continue normally. A later
+cycle or **Upload pending captures now** resumes the same UUID and bytes.
+
+If normalization, mask validation, palette extraction, or the atomic queue
+transition fails, the raw JPEG returns to `STAGED` with a safe error code. The
+next cycle retries that source first. After a successful staged recovery, the
+same cycle still takes its one current-slot photograph when the pending limit
+allows it. Reboot reconciliation similarly returns interrupted `PROCESSING`
+work to `STAGED` and removes incomplete normalized output before retrying.
 
 ## Configuration
 
@@ -163,7 +190,8 @@ from the backup or bundled default at startup.
 
 Palette code must obtain its Boolean sampling map through
 `validatedAnalysisMask`. A malformed or undersized mask throws before a palette
-can be built and does not mutate or delete the complete source capture.
+can be built and does not mutate or delete the complete source capture. The
+source remains staged for deterministic retry before the next new photograph.
 
 ## Weighted palette extraction
 
@@ -217,17 +245,19 @@ This prevents manual-only service startup from racing queue inspection.
 
 Pending records are ordered by capture time and UUID. When the configurable
 pending limit (192 by default) is reached, new manual and scheduled captures
-pause with `OUTBOX_BACKPRESSURE`; queued work is retained indefinitely. The
+pause with `OUTBOX_BACKPRESSURE`; queued work is retained indefinitely. Staged
+recovery still runs so interrupted local processing cannot become stranded. The
 station status displays staged, processing, pending, delivered, and attention
 counts, oldest pending age, and local storage use. The same queue snapshot is
 included in timing CSV diagnostics.
 
-After every successful local commit, the app consumes the oldest eligible
-pending records up to the configured per-cycle budget. **Upload pending captures
-now** runs the same bounded pass without taking a photograph. This is useful for
-recovery and production smoke tests. If the queue is already at its limit, the
-app attempts delivery before recording `OUTBOX_BACKPRESSURE`, preventing a full
-queue from becoming permanently stuck.
+Each production cycle splits one configured upload budget across a one-item,
+ten-second pre-capture pass and a post-commit pass. Both consume the oldest
+eligible pending records. **Upload pending captures now** runs one full bounded
+pass without taking a photograph. This is useful for recovery and production
+smoke tests. If the queue is already at its limit, the app continues bounded
+delivery attempts while recording `OUTBOX_BACKPRESSURE`, preventing a full queue
+from becoming permanently stuck.
 
 Retries preserve the exact UUID, JPEG bytes, capture time, device ID, and
 palette. Network failures, timeouts, retryable HTTP responses, and malformed
@@ -272,6 +302,26 @@ loopback hosts.
    by one.
 4. Confirm exactly one matching D1 row and R2 object, then load the response's
    `/api/images/...` route. Restore the upload budget afterward.
+
+### Integrated-cycle acceptance test
+
+Use a normal upload budget of at least `2` for this test. Start the station and
+leave the display off through several UTC boundaries.
+
+1. Online: confirm a new D1 row and R2 object for a scheduled capture and that
+   pending returns to zero.
+2. Offline: interrupt the phone's internet connection without stopping station
+   mode, wait for a slot, and confirm the pending count rises while a new local
+   image is retained. Restore connectivity and confirm oldest-first delivery.
+3. Backpressure: temporarily set **Maximum pending captures** to the current
+   pending count (or `1` for a controlled test), then confirm the cycle skips a
+   new photograph but continues upload recovery. Restore the normal limit.
+4. Recovery: interrupt the app after CameraX has saved a source but before local
+   processing completes, reopen or reboot, and confirm the old source is
+   recovered before the next new capture without a duplicate server row.
+5. Export the timing CSV. Confirm `cycle_action`, pre/post upload counts,
+   recovered staged ID, retention count, and final staged/pending counts; also
+   confirm no `OVERLAP_PREVENTED` burst or duplicate capture for one UTC slot.
 
 ## Build and CI
 
@@ -389,9 +439,10 @@ Restore the known working Termux job if native development pauses:
 the intended UTC slot, trigger source, service receipt, capture start and
 completion, timing deltas, screen/power state, safe error code, and image path.
 The report also includes palette JSON, size, analysis dimensions, sampled-pixel
-count, elapsed time, peak process memory, and the upload pass counts and error
-code associated with each completed capture. The ingest token and configuration
-secrets are never included.
+count, elapsed time, peak process memory, separate pre/post upload counts,
+staged-recovery ID, retention count, final queue counts, and the safe upload
+error code associated with each completed cycle. The ingest token, network
+response bodies, and configuration secrets are never included.
 
 **Share latest production image** opens Android's share sheet for the newest
 fully committed JPEG. This makes daylight, sunset, night, overcast, orientation,
@@ -412,7 +463,7 @@ codes include `OUTBOX_INITIALIZATION_FAILED`, `OUTBOX_BACKPRESSURE`,
 `OUTBOX_INSPECTION_FAILED`,
 `PROCESS_INTERRUPTED_RECOVERABLE`, and `IMMUTABLE_EVIDENCE_INCONSISTENT`.
 Delivery codes include `INGEST_TOKEN_UNAVAILABLE`, `REQUEST_TIMEOUT`,
-`NETWORK_REQUEST_FAILED`, `SERVER_RETRYABLE`, `AUTHORIZATION_REJECTED`,
+`NETWORK_UNAVAILABLE`, `NETWORK_REQUEST_FAILED`, `SERVER_RETRYABLE`, `AUTHORIZATION_REJECTED`,
 `REQUEST_REJECTED`, `REDIRECT_REJECTED`, `IDEMPOTENCY_CONFLICT`,
 `UPLOAD_RETRY_THRESHOLD`, and `UPLOAD_ATTENTION_REQUIRED`.
 

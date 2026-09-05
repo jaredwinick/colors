@@ -110,11 +110,17 @@ class ProductionCaptureRepository(context: Context) : DeliveryQueue {
         captureId: String,
         capturedAt: String,
         deviceId: String,
+        stagingMetadataJson: String? = null,
         now: Instant = Instant.now(),
-    ) = outbox.recordStaged(captureId, capturedAt, deviceId, now)
+    ) = outbox.recordStaged(captureId, capturedAt, deviceId, stagingMetadataJson, now)
 
     fun markProcessing(captureId: String, now: Instant = Instant.now()) =
         outbox.markProcessing(captureId, now)
+
+    fun returnToStaged(captureId: String, errorCode: String, now: Instant = Instant.now()) =
+        outbox.returnToStaged(captureId, errorCode, now)
+
+    fun oldestStaged(): DurableCaptureRecord? = outbox.oldestStaged()
 
     @Synchronized
     fun commit(normalizedTemp: File, metadata: ProductionCaptureMetadata): File {
