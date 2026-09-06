@@ -7,6 +7,9 @@
   "secrets": {
     "required": ["INGEST_TOKEN"]
   },
+  "vars": {
+    "DISPLAY_TIME_ZONE": "America/Denver"
+  },
   "assets": {
     "directory": "dist/client",
     "binding": "ASSETS",

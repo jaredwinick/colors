@@ -37,6 +37,8 @@ The deployment needs:
 - D1 binding `DB`
 - R2 binding `SKY_IMAGES`
 - secret environment value `INGEST_TOKEN`
+- plain-text environment value `DISPLAY_TIME_ZONE` containing an IANA zone
+  (production currently uses `America/Denver`)
 
 Generate a long random token, configure it only in the hosting environment and
 on the phone, and never commit it. The schema migration in `drizzle/` creates
@@ -59,3 +61,41 @@ image, timestamp, palette, and device returns the existing capture with `200`
 and `idempotentReplay: true`. Reusing an ID for different content returns `409`.
 
 See [android/README.md](android/README.md) for the phone setup.
+
+## Archive read contract
+
+`GET /api/captures?date=YYYY-MM-DD` returns the captures belonging to one
+calendar day in `DISPLAY_TIME_ZONE`. If `date` is omitted, the endpoint uses
+the current date in that configured zone. The Worker never derives the archive
+zone from its own runtime or from a visitor's browser.
+
+The response has this shape:
+
+```json
+{
+  "date": "2026-08-16",
+  "timeZone": "America/Denver",
+  "captureCount": 96,
+  "invalidCaptureCount": 0,
+  "isCurrentDay": false,
+  "captures": [
+    {
+      "id": "capture UUID",
+      "capturedAt": "2026-08-17T05:45:00.000Z",
+      "imageUrl": "/api/images/encoded-object-key",
+      "palette": [{ "hex": "#52739A", "weight": 0.28 }]
+    }
+  ]
+}
+```
+
+Captures are ordered newest first. Invalid dates return `400`. A record with
+malformed palette JSON is omitted while `invalidCaptureCount` records the
+problem, allowing the rest of the day to render. Source images remain private
+in R2 and are read through the same-origin `/api/images` route.
+
+Local midnight boundaries are converted to UTC before querying D1. The query
+uses the indexed half-open range `captured_at >= start AND captured_at < end`,
+so daylight-saving days naturally span 23 or 25 hours. Current-day responses
+have a 30-second shared cache lifetime with stale revalidation; completed days
+have a one-day shared cache lifetime because their data changes infrequently.

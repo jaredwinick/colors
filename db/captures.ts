@@ -1,24 +1,40 @@
 import { env } from "cloudflare:workers";
 
-export type PaletteColor = {
-  hex: string;
-  weight: number;
-};
+import {
+  localDateForInstant,
+  queryCaptureArchive,
+  utcRangeForLocalDate,
+  type CaptureArchive,
+  type CaptureRow,
+  type CaptureView,
+  type PaletteColor,
+} from "./capture-archive";
 
-export type CaptureView = {
-  id: string;
-  capturedAt: string;
-  imageUrl: string | null;
-  palette: PaletteColor[];
-};
+export type { CaptureArchive, CaptureView, PaletteColor } from "./capture-archive";
 
-type CaptureRow = {
-  id: string;
-  captured_at: string;
-  image_key: string;
-  palette_json: string;
-};
+export async function getCaptureArchive(
+  date: string,
+  timeZone: string,
+  now = new Date(),
+): Promise<CaptureArchive> {
+  // Validate the request even in local/sample environments without D1.
+  utcRangeForLocalDate(date, timeZone);
 
+  if (!env.DB) {
+    return {
+      date,
+      timeZone,
+      captureCount: 0,
+      invalidCaptureCount: 0,
+      isCurrentDay: date === localDateForInstant(now, timeZone),
+      captures: [],
+    };
+  }
+
+  return queryCaptureArchive(env.DB, date, timeZone, now);
+}
+
+/** @deprecated The Concept C archive uses getCaptureArchive instead. */
 export async function getRecentCaptures(hours = 24): Promise<CaptureView[]> {
   if (!env.DB) return [];
 
