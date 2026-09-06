@@ -11,6 +11,8 @@
   --accent: #175a7c;
   --live: #d05a45;
   --sample: #89949b;
+  --image-stage: #0a1015;
+  --backdrop: rgba(5, 9, 12, 0.78);
   --sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
     "Segoe UI", sans-serif;
 }
@@ -188,6 +190,34 @@ h1 {
   background: var(--line);
 }
 
+.palette-trigger {
+  width: 100%;
+  min-width: 0;
+  height: 12px;
+  margin: 0;
+  padding: 0;
+  appearance: none;
+  border: 0;
+  border-radius: 2px;
+  background: transparent;
+  color: inherit;
+  cursor: zoom-in;
+  font: inherit;
+}
+
+.palette-trigger .palette-band {
+  height: 100%;
+}
+
+.palette-trigger:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.palette-trigger:hover .palette-band {
+  filter: saturate(1.06) brightness(1.03);
+}
+
 .palette-band-newest {
   box-shadow:
     0 0 0 1px var(--surface),
@@ -198,6 +228,193 @@ h1 {
   display: block;
   flex: 0 0 auto;
   height: 100%;
+}
+
+.capture-preview {
+  position: fixed;
+  z-index: 40;
+  width: min(280px, calc(100vw - 32px));
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--line) 76%, var(--ink));
+  border-radius: 13px;
+  background: var(--surface);
+  box-shadow: 0 20px 55px rgba(7, 15, 20, 0.24);
+  pointer-events: none;
+  animation: preview-arrive 120ms ease-out;
+}
+
+.capture-image-stage {
+  position: relative;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background: var(--image-stage);
+  color: #dbe5ea;
+}
+
+.capture-image-stage-preview {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+}
+
+.capture-image-stage img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.capture-image-stage[data-image-state="loading"] img,
+.capture-image-stage[data-image-state="unavailable"] img {
+  opacity: 0;
+}
+
+.capture-image-loading {
+  position: absolute;
+  color: rgba(219, 229, 234, 0.72);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.capture-image-unavailable {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  width: 100%;
+  height: 100%;
+  min-height: 180px;
+  padding: 24px;
+  color: rgba(219, 229, 234, 0.8);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.capture-image-unavailable small {
+  margin-top: 7px;
+  color: rgba(219, 229, 234, 0.5);
+  font-size: 9px;
+  text-transform: none;
+}
+
+.capture-preview-caption {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 11px;
+  color: var(--muted);
+  font-size: 8px;
+  letter-spacing: 0.1em;
+  line-height: 1.25;
+  text-transform: uppercase;
+}
+
+.capture-preview-caption time {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+  text-align: right;
+  text-transform: none;
+}
+
+.capture-dialog {
+  width: min(1040px, calc(100% - 32px));
+  max-width: none;
+  max-height: calc(100dvh - 32px);
+  margin: auto;
+  padding: 0;
+  overflow: visible;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+}
+
+.capture-dialog::backdrop {
+  background: var(--backdrop);
+  backdrop-filter: blur(8px);
+}
+
+.capture-dialog-card {
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--line) 72%, var(--ink));
+  border-radius: 18px;
+  background: var(--surface);
+  box-shadow: 0 28px 90px rgba(0, 0, 0, 0.42);
+}
+
+.capture-dialog-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  align-items: center;
+  padding: 17px 18px 16px 21px;
+  border-bottom: 1px solid var(--line);
+}
+
+.capture-dialog-header p {
+  margin: 0 0 4px;
+  color: var(--accent);
+  font-size: 8px;
+  font-weight: 560;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.capture-dialog-header h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 610;
+  letter-spacing: -0.025em;
+}
+
+.dialog-close {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 36px;
+  padding: 7px 11px 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+  font: 540 9px/1 var(--sans);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.dialog-close span[aria-hidden="true"] {
+  font-size: 19px;
+  font-weight: 320;
+  line-height: 0.7;
+}
+
+.dialog-close:hover {
+  background: color-mix(in srgb, var(--line) 50%, transparent);
+}
+
+.dialog-close:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.capture-image-stage-viewer {
+  width: 100%;
+  height: min(76dvh, 860px);
+  min-height: 340px;
+}
+
+@keyframes preview-arrive {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .empty-state {
@@ -256,6 +473,8 @@ h1 {
     --accent: #8bc9e8;
     --live: #eb765f;
     --sample: #748089;
+    --image-stage: #070b0e;
+    --backdrop: rgba(0, 0, 0, 0.82);
   }
 
   body {
@@ -322,6 +541,48 @@ h1 {
     height: 11px;
   }
 
+  .palette-trigger {
+    height: 11px;
+  }
+
+  .capture-dialog {
+    width: calc(100% - 16px);
+    max-height: calc(100dvh - 16px);
+  }
+
+  .capture-dialog-card {
+    border-radius: 15px;
+  }
+
+  .capture-dialog-header {
+    padding: 14px 13px 13px 16px;
+  }
+
+  .capture-dialog-header h2 {
+    font-size: 13px;
+  }
+
+  .dialog-close span:last-child {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
+  .dialog-close {
+    justify-content: center;
+    width: 38px;
+    min-width: 38px;
+    padding: 0;
+  }
+
+  .capture-image-stage-viewer {
+    height: min(76dvh, 760px);
+    min-height: 300px;
+  }
+
   .empty-state {
     min-height: 240px;
     padding: 56px 0;
@@ -341,5 +602,9 @@ h1 {
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;
+  }
+
+  .capture-preview {
+    animation: none;
   }
 }
