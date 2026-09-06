@@ -99,3 +99,16 @@ uses the indexed half-open range `captured_at >= start AND captured_at < end`,
 so daylight-saving days naturally span 23 or 25 hours. Current-day responses
 have a 30-second shared cache lifetime with stale revalidation; completed days
 have a one-day shared cache lifetime because their data changes infrequently.
+
+The archive page keeps its selected day in a shareable `/day/YYYY-MM-DD` path.
+A bare root request redirects to the current date in `DISPLAY_TIME_ZONE`;
+invalid and future dates normalize to that same current-day URL. Previous-day
+and next-day links use ordinary URLs, so direct links, reloads, and browser
+back/forward navigation retain the selected day. The next-day control is
+unavailable on the current day.
+
+Only the current day polls for updates. Polling pauses while the page is hidden
+and refreshes immediately when it becomes visible again. Missing scheduled
+intervals are represented by the absence of a capture rather than placeholder
+rows; the header reports the number of captures that actually exist and labels
+15 minutes as the intended schedule.
