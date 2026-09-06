@@ -99,6 +99,46 @@ h1 {
   line-height: 1.02;
 }
 
+.day-navigation {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.day-navigation a,
+.day-navigation-disabled {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 36px;
+  padding: 7px 11px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 540;
+  letter-spacing: -0.015em;
+  line-height: 1;
+  text-decoration: none;
+}
+
+.day-navigation a:hover {
+  border-color: var(--faint);
+  background: color-mix(in srgb, var(--line) 44%, transparent);
+}
+
+.day-navigation a:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.day-navigation-disabled {
+  color: var(--faint);
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
 .archive-meta {
   display: grid;
   justify-items: end;
@@ -130,6 +170,10 @@ h1 {
 .archive-status i.status-live {
   background: var(--live);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--live) 15%, transparent);
+}
+
+.archive-status i.status-history {
+  background: var(--accent);
 }
 
 .timeline-panel {

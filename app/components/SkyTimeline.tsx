@@ -1,7 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { CaptureArchive, CaptureView } from "../../db/capture-archive";
+import {
+  localDateForInstant,
+  type CaptureArchive,
+  type CaptureView,
+} from "../../db/capture-archive";
+import { archiveDateNeighbors, archiveUrl } from "../archive-navigation";
 import {
   CaptureImageDialog,
   CaptureImagePreview,
@@ -11,9 +16,11 @@ import {
 } from "./CaptureImageOverlays";
 import { imagePreviewPosition } from "./image-preview-position";
 import { accentPreservingWidths } from "./palette-widths";
+import { mergeCaptureArchives } from "./archive-refresh";
 
 type Props = {
   initialArchive: CaptureArchive;
+  initialCurrentDate: string;
   initialIsLive: boolean;
 };
 
@@ -78,8 +85,13 @@ function PaletteBand({ capture, newest }: { capture: CaptureView; newest: boolea
   );
 }
 
-export function SkyTimeline({ initialArchive, initialIsLive }: Props) {
+export function SkyTimeline({
+  initialArchive,
+  initialCurrentDate,
+  initialIsLive,
+}: Props) {
   const [archive, setArchive] = useState(initialArchive);
+  const [currentDate, setCurrentDate] = useState(initialCurrentDate);
   const [isLive, setIsLive] = useState(initialIsLive);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [preview, setPreview] = useState<CapturePreview | null>(null);
@@ -141,29 +153,86 @@ export function SkyTimeline({ initialArchive, initialIsLive }: Props) {
   };
 
   useEffect(() => {
-    if (!initialIsLive || !initialArchive.isCurrentDay) return;
+    if (!initialIsLive || !archive.isCurrentDay) return;
+
+    let interval: number | null = null;
+    let request: AbortController | null = null;
+    let inFlight = false;
+    let disposed = false;
 
     const refresh = async () => {
+      if (inFlight || document.visibilityState !== "visible") return;
+      inFlight = true;
+      const controller = new AbortController();
+      request = controller;
       setIsRefreshing(true);
       try {
         const response = await fetch(
-          `/api/captures?date=${encodeURIComponent(initialArchive.date)}`,
-          { cache: "no-store" },
+          `/api/captures?date=${encodeURIComponent(archive.date)}`,
+          { cache: "no-store", signal: controller.signal },
         );
         if (!response.ok) return;
         const nextArchive = (await response.json()) as CaptureArchive;
-        setArchive(nextArchive);
+        if (disposed || request !== controller) return;
+        setArchive((current) => mergeCaptureArchives(current, nextArchive));
+        setCurrentDate(
+          localDateForInstant(new Date(), nextArchive.timeZone),
+        );
         setIsLive(true);
       } catch {
         // Preserve the last successful view through a temporary network loss.
       } finally {
-        setIsRefreshing(false);
+        if (request === controller) {
+          inFlight = false;
+          request = null;
+          if (!disposed) setIsRefreshing(false);
+        }
       }
     };
 
-    const timer = window.setInterval(refresh, 60_000);
-    return () => window.clearInterval(timer);
-  }, [initialArchive.date, initialArchive.isCurrentDay, initialIsLive]);
+    const stopPolling = () => {
+      if (interval !== null) window.clearInterval(interval);
+      interval = null;
+    };
+
+    const startPolling = () => {
+      if (interval === null && document.visibilityState === "visible") {
+        interval = window.setInterval(() => void refresh(), 60_000);
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        stopPolling();
+        request?.abort();
+        request = null;
+        inFlight = false;
+        setIsRefreshing(false);
+        return;
+      }
+      void refresh();
+      startPolling();
+    };
+
+    startPolling();
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      disposed = true;
+      stopPolling();
+      request?.abort();
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [archive.date, archive.isCurrentDay, initialIsLive]);
+
+  const { previousDate, nextDate } = archiveDateNeighbors(
+    archive.date,
+    currentDate,
+  );
+  const statusLabel = !isLive
+    ? "Designed sample"
+    : archive.isCurrentDay
+      ? "Live archive"
+      : "Historical archive";
 
   return (
     <main className="archive-shell">
@@ -177,17 +246,47 @@ export function SkyTimeline({ initialArchive, initialIsLive }: Props) {
             widths
           </p>
           <h1>{formatDate(archive.date)}</h1>
+          <nav className="day-navigation" aria-label="Archive day navigation">
+            <a
+              href={archiveUrl(previousDate)}
+              rel="prev"
+              aria-label={`View ${formatDate(previousDate)}`}
+            >
+              <span aria-hidden="true">←</span> Previous day
+            </a>
+            {nextDate ? (
+              <a
+                href={archiveUrl(nextDate)}
+                rel="next"
+                aria-label={`View ${formatDate(nextDate)}`}
+              >
+                Next day <span aria-hidden="true">→</span>
+              </a>
+            ) : (
+              <span className="day-navigation-disabled" aria-disabled="true">
+                Next day <span aria-hidden="true">→</span>
+              </span>
+            )}
+          </nav>
         </div>
         <div className="archive-meta" aria-label="Archive summary">
           <span className="archive-status">
             <i
-              className={isLive ? "status-live" : "status-sample"}
+              className={
+                isLive && archive.isCurrentDay
+                  ? "status-live"
+                  : isLive
+                    ? "status-history"
+                    : "status-sample"
+              }
               aria-hidden="true"
             />
-            {isLive ? "Live archive" : "Designed sample"}
+            {statusLabel}
           </span>
-          <span>{archive.captureCount} palettes</span>
-          <span>15 minute cadence</span>
+          <span>
+            {archive.captureCount} capture{archive.captureCount === 1 ? "" : "s"}
+          </span>
+          <span>Scheduled every 15 minutes</span>
         </div>
       </header>
 
@@ -204,8 +303,16 @@ export function SkyTimeline({ initialArchive, initialIsLive }: Props) {
 
         {archive.captures.length === 0 ? (
           <div className="empty-state">
-            <p>No colors have arrived for this day yet.</p>
-            <span>The next successful sky capture will appear here.</span>
+            <p>
+              {archive.isCurrentDay
+                ? "No colors have arrived for today yet."
+                : "No captures were recorded for this day."}
+            </p>
+            <span>
+              {archive.isCurrentDay
+                ? "The next successful sky capture will appear here."
+                : "Choose the previous or next available day to continue browsing."}
+            </span>
           </div>
         ) : (
           <ol className="palette-timeline">
