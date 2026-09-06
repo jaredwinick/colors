@@ -1,34 +1,68 @@
-import type { CaptureView, PaletteColor } from "./captures";
+import type { CaptureView, PaletteColor } from "./capture-archive.ts";
+import { utcRangeForLocalDate } from "./capture-archive.ts";
 
-const palettes: [string, number][][] = [
-  [["#9EBBD0", .24], ["#B4CBD9", .22], ["#CFD9D8", .19], ["#E8DED2", .18], ["#D4B29E", .17]],
-  [["#829FB8", .25], ["#AFC4D2", .23], ["#D5D9D4", .18], ["#E8D1BC", .18], ["#C89C82", .16]],
-  [["#6E8EAA", .25], ["#A7BAC7", .22], ["#D9D4CB", .20], ["#E7B997", .18], ["#B77D69", .15]],
-  [["#5C7E9D", .23], ["#93ADBE", .21], ["#D6D1C5", .19], ["#E8AC84", .20], ["#AA6A5D", .17]],
-  [["#4D6E8D", .22], ["#839FAF", .19], ["#C9C7BC", .18], ["#E59A70", .22], ["#965552", .19]],
-  [["#405D79", .23], ["#708B9D", .18], ["#B7B9B1", .17], ["#DC865F", .22], ["#7D4650", .20]],
-  [["#344B65", .24], ["#5F7487", .19], ["#969DA0", .17], ["#C87258", .20], ["#643B4B", .20]],
-  [["#28374F", .25], ["#48596C", .20], ["#777E87", .18], ["#A75E55", .19], ["#483346", .18]],
-  [["#1E293D", .28], ["#354358", .22], ["#596170", .19], ["#7B4D56", .17], ["#332C3F", .14]],
-  [["#182134", .30], ["#29344A", .23], ["#444A5D", .18], ["#584052", .16], ["#27283A", .13]],
-  [["#11192A", .31], ["#202B40", .23], ["#343B50", .19], ["#413548", .15], ["#202235", .12]],
-  [["#0E1727", .32], ["#1C273A", .24], ["#2B3448", .18], ["#353044", .15], ["#1A1E30", .11]],
-];
+const weights = [0.24, 0.19, 0.16, 0.13, 0.1, 0.08, 0.06, 0.04];
 
-function shiftedDate(hoursAgo: number) {
-  return new Date(Date.now() - hoursAgo * 60 * 60 * 1000).toISOString();
+const colorKeyframes = [
+  ["#050A14", "#0A1224", "#111C34", "#1C2942", "#2D3950", "#465064", "#695F70", "#97776F"],
+  ["#11192A", "#24334C", "#455878", "#756C86", "#A97883", "#D8846E", "#F1A16C", "#C8526B"],
+  ["#2767A0", "#3980B9", "#5D9BC9", "#86B5D5", "#B3D0E0", "#DDE7E8", "#F1EBE0", "#8C919E"],
+  ["#1D4E7C", "#3977A2", "#6694B1", "#9BAFC0", "#C7C5BE", "#E6BE9C", "#D97C63", "#A4475C"],
+  ["#07101E", "#101B30", "#1D2942", "#303A51", "#4A485B", "#6B5662", "#8D6768", "#B07A6E"],
+] as const;
+
+function rgb(hex: string) {
+  return [
+    Number.parseInt(hex.slice(1, 3), 16),
+    Number.parseInt(hex.slice(3, 5), 16),
+    Number.parseInt(hex.slice(5, 7), 16),
+  ];
 }
 
-export const demoCaptures: CaptureView[] = Array.from({ length: 24 }, (_, index) => {
-  const palette = palettes[index % palettes.length].map(([hex, weight]) => ({
-    hex: hex as string,
-    weight: weight as number,
-  }));
+function interpolateHex(from: string, to: string, amount: number) {
+  const start = rgb(from);
+  const end = rgb(to);
+  const channels = start.map((value, index) =>
+    Math.round(value + (end[index] - value) * amount),
+  );
+  return `#${channels
+    .map((channel) => channel.toString(16).padStart(2, "0"))
+    .join("")}`.toUpperCase();
+}
 
-  return {
-    id: `sample-${index}`,
-    capturedAt: shiftedDate(index),
-    imageUrl: null,
-    palette,
-  };
-});
+function paletteAt(progress: number): PaletteColor[] {
+  const keyframePosition = progress * (colorKeyframes.length - 1);
+  const startIndex = Math.min(
+    Math.floor(keyframePosition),
+    colorKeyframes.length - 2,
+  );
+  const amount = keyframePosition - startIndex;
+
+  return colorKeyframes[startIndex].map((color, index) => ({
+    hex: interpolateHex(color, colorKeyframes[startIndex + 1][index], amount),
+    weight: weights[index],
+  }));
+}
+
+export function createDemoCaptures(
+  date: string,
+  timeZone: string,
+): CaptureView[] {
+  const { start, end } = utcRangeForLocalDate(date, timeZone);
+  const first = Date.parse(start);
+  const last = Date.parse(end);
+  const interval = 15 * 60 * 1000;
+  const captures: CaptureView[] = [];
+
+  for (let instant = first; instant < last; instant += interval) {
+    const progress = (instant - first) / (last - first);
+    captures.push({
+      id: `sample-${new Date(instant).toISOString()}`,
+      capturedAt: new Date(instant).toISOString(),
+      imageUrl: null,
+      palette: paletteAt(progress),
+    });
+  }
+
+  return captures.reverse();
+}

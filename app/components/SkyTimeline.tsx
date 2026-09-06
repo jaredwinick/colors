@@ -1,171 +1,170 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import type { CaptureView } from "../../db/captures";
+import { useEffect, useState } from "react";
+import type { CaptureArchive, CaptureView } from "../../db/capture-archive";
+import { accentPreservingWidths } from "./palette-widths";
 
 type Props = {
-  initialCaptures: CaptureView[];
+  initialArchive: CaptureArchive;
   initialIsLive: boolean;
 };
 
-function formatTime(value: string) {
+function formatTime(value: string, timeZone: string) {
   return new Intl.DateTimeFormat("en-US", {
-    hour: "numeric",
+    timeZone,
+    hour: "2-digit",
     minute: "2-digit",
+    hourCycle: "h23",
   }).format(new Date(value));
 }
 
 function formatDate(value: string) {
-  const date = new Date(value);
-  const today = new Date();
-  if (date.toDateString() === today.toDateString()) return "Today";
+  const [year, month, day] = value.split("-").map(Number);
   return new Intl.DateTimeFormat("en-US", {
-    month: "short",
+    timeZone: "UTC",
+    weekday: "long",
+    month: "long",
     day: "numeric",
-  }).format(date);
+    year: "numeric",
+  }).format(new Date(Date.UTC(year, month - 1, day)));
 }
 
-export function SkyTimeline({ initialCaptures, initialIsLive }: Props) {
-  const [captures, setCaptures] = useState(initialCaptures);
+function PaletteBand({ capture, newest }: { capture: CaptureView; newest: boolean }) {
+  const widths = accentPreservingWidths(capture.palette);
+
+  return (
+    <div
+      className={`palette-band${newest ? " palette-band-newest" : ""}`}
+      role="img"
+      aria-label={`${newest ? "Newest palette. " : ""}${capture.palette
+        .map(
+          (color) =>
+            `${color.hex}, ${Math.round(color.weight * 100)} percent`,
+        )
+        .join("; ")}`}
+    >
+      {capture.palette.map((color, index) => (
+        <span
+          className="palette-swatch"
+          key={`${capture.id}-${color.hex}-${index}`}
+          style={{
+            backgroundColor: color.hex,
+            width: `${widths[index] * 100}%`,
+          }}
+          title={`${color.hex} · ${Math.round(color.weight * 100)}%`}
+          aria-hidden="true"
+        />
+      ))}
+    </div>
+  );
+}
+
+export function SkyTimeline({ initialArchive, initialIsLive }: Props) {
+  const [archive, setArchive] = useState(initialArchive);
   const [isLive, setIsLive] = useState(initialIsLive);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   useEffect(() => {
-    if (!initialIsLive) return;
+    if (!initialIsLive || !initialArchive.isCurrentDay) return;
 
     const refresh = async () => {
+      setIsRefreshing(true);
       try {
-        const response = await fetch("/api/captures", { cache: "no-store" });
+        const response = await fetch(
+          `/api/captures?date=${encodeURIComponent(initialArchive.date)}`,
+          { cache: "no-store" },
+        );
         if (!response.ok) return;
-        const data = (await response.json()) as { captures: CaptureView[] };
-        setCaptures(data.captures);
+        const nextArchive = (await response.json()) as CaptureArchive;
+        setArchive(nextArchive);
         setIsLive(true);
       } catch {
         // Preserve the last successful view through a temporary network loss.
+      } finally {
+        setIsRefreshing(false);
       }
     };
 
     const timer = window.setInterval(refresh, 60_000);
     return () => window.clearInterval(timer);
-  }, [initialIsLive]);
-
-  const newest = captures[0];
-  const dateLabel = useMemo(
-    () =>
-      newest
-        ? new Intl.DateTimeFormat("en-US", {
-            weekday: "long",
-            month: "long",
-            day: "numeric",
-            year: "numeric",
-          }).format(new Date(newest.capturedAt))
-        : "Today",
-    [newest],
-  );
+  }, [initialArchive.date, initialArchive.isCurrentDay, initialIsLive]);
 
   return (
-    <main className="site-shell">
-      <header className="masthead">
-        <div className="wordmark">Colors</div>
-        <div className="masthead-center">An observation of light</div>
-        <div className="live-mark">
-          <span className={`live-dot ${isLive ? "" : "sample"}`} />
-          {isLive ? "Live archive" : "Designed sample"}
+    <main className="archive-shell">
+      <header className="archive-header">
+        <a className="wordmark" href="#timeline" aria-label="Colors archive home">
+          colors
+        </a>
+        <div className="archive-title">
+          <p className="archive-kicker">
+            Atmospheric ribbon <span aria-hidden="true">·</span> accent-preserving
+            widths
+          </p>
+          <h1>{formatDate(archive.date)}</h1>
+        </div>
+        <div className="archive-meta" aria-label="Archive summary">
+          <span className="archive-status">
+            <i
+              className={isLive ? "status-live" : "status-sample"}
+              aria-hidden="true"
+            />
+            {isLive ? "Live archive" : "Designed sample"}
+          </span>
+          <span>{archive.captureCount} palettes</span>
+          <span>15 minute cadence</span>
         </div>
       </header>
 
-      <section className="intro" aria-labelledby="page-title">
-        <div>
-          <p className="eyebrow">{dateLabel} · last 24 hours</p>
-          <h1 id="page-title">
-            A day written
-            <br />
-            by the <em>sky.</em>
-          </h1>
-        </div>
-        <p className="intro-copy">
-          A quiet record of the colors above us, gathered at regular intervals.
-          The newest light arrives at the top.
-        </p>
-      </section>
-
-      <section aria-label="Sky color timeline">
-        <div className="timeline-head" aria-hidden="true">
+      <section
+        className="timeline-panel"
+        id="timeline"
+        aria-labelledby="timeline-title"
+        aria-busy={isRefreshing}
+      >
+        <div className="timeline-heading">
           <span>Time</span>
-          <span>Source</span>
-          <span>
-            <b>Extracted palette</b>
-            <b>{captures.length} observations</b>
-          </span>
+          <h2 id="timeline-title">Palette · newest first</h2>
         </div>
-        <div className="timeline">
-          {captures.length === 0 ? (
-            <p className="empty-state">
-              The sky is waiting. The first capture will appear here.
-            </p>
-          ) : (
-            captures.map((capture) => (
-              <article className="capture-row" key={capture.id}>
+
+        {archive.captures.length === 0 ? (
+          <div className="empty-state">
+            <p>No colors have arrived for this day yet.</p>
+            <span>The next successful sky capture will appear here.</span>
+          </div>
+        ) : (
+          <ol className="palette-timeline">
+            {archive.captures.map((capture, index) => (
+              <li className="palette-row" key={capture.id}>
                 <time
-                  className="capture-time"
                   dateTime={capture.capturedAt}
-                  title={new Date(capture.capturedAt).toLocaleString()}
+                  title={new Intl.DateTimeFormat("en-US", {
+                    timeZone: archive.timeZone,
+                    dateStyle: "full",
+                    timeStyle: "short",
+                  }).format(new Date(capture.capturedAt))}
                 >
-                  {formatTime(capture.capturedAt)}
-                  <small>{formatDate(capture.capturedAt)}</small>
+                  {formatTime(capture.capturedAt, archive.timeZone)}
                 </time>
-                <div
-                  className="sky-frame"
-                  style={
-                    capture.imageUrl
-                      ? undefined
-                      : {
-                          background: `linear-gradient(145deg, ${capture.palette
-                            .map((color) => color.hex)
-                            .join(", ")})`,
-                        }
-                  }
-                >
-                  {capture.imageUrl ? (
-                    // The upload endpoint controls this same-origin URL.
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={capture.imageUrl}
-                      alt={`Sky at ${formatTime(capture.capturedAt)}`}
-                      loading="lazy"
-                    />
-                  ) : null}
-                </div>
-                <div
-                  className="palette"
-                  aria-label={`Palette captured at ${formatTime(capture.capturedAt)}`}
-                >
-                  {capture.palette.map((color, index) => (
-                    <div
-                      className="swatch"
-                      key={`${capture.id}-${color.hex}-${index}`}
-                      style={{
-                        backgroundColor: color.hex,
-                        flexGrow: Math.max(1, color.weight * 100),
-                      }}
-                      title={`${color.hex} · ${Math.round(color.weight * 100)}%`}
-                    >
-                      <span className="swatch-label">{color.hex}</span>
-                    </div>
-                  ))}
-                </div>
-              </article>
-            ))
-          )}
-        </div>
+                <PaletteBand capture={capture} newest={index === 0} />
+              </li>
+            ))}
+          </ol>
+        )}
+
+        {archive.invalidCaptureCount > 0 ? (
+          <p className="record-note" role="status">
+            {archive.invalidCaptureCount} malformed capture
+            {archive.invalidCaptureCount === 1 ? " was" : "s were"} omitted.
+          </p>
+        ) : null}
       </section>
 
-      <footer className="footer">
+      <footer className="archive-footer">
         <p>
-          Each band is distilled from one photograph. Width shows how much of
-          the image each color occupies; together, the rows become a portrait of
-          the day.
+          Each ribbon distills one photograph. Rare colors retain a visible
+          place while their original measured weights remain unchanged.
         </p>
-        <a href="#page-title">Return to the newest light ↑</a>
+        <a href="#timeline">Return to newest</a>
       </footer>
     </main>
   );

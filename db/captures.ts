@@ -12,6 +12,14 @@ import {
 
 export type { CaptureArchive, CaptureView, PaletteColor } from "./capture-archive";
 
+export function getDisplayTimeZone(): string {
+  const timeZone = env.DISPLAY_TIME_ZONE?.trim();
+  if (!timeZone) {
+    throw new Error("DISPLAY_TIME_ZONE is not configured");
+  }
+  return timeZone;
+}
+
 export async function getCaptureArchive(
   date: string,
   timeZone: string,
