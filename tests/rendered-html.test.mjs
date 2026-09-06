@@ -12,9 +12,12 @@ test("the production bundle and sky archive surface are present", async () => {
     readFile(new URL("../package.json", import.meta.url), "utf8"),
   ]);
 
-  assert.match(page, /getRecentCaptures\(24\)/);
-  assert.match(timeline, /A day written/);
-  assert.match(timeline, /Live archive/);
+  assert.match(page, /getCaptureArchive\(date, timeZone, now\)/);
+  assert.match(timeline, /Atmospheric ribbon/);
+  assert.match(timeline, /Palette · newest first/);
+  assert.match(timeline, /accentPreservingWidths/);
+  assert.match(timeline, /archive\.timeZone/);
+  assert.doesNotMatch(timeline, /A day written|className="sky-frame"|>Source</);
   assert.match(layout, /Colors — a day written by the sky/);
   assert.match(layout, /og\.png/);
   assert.doesNotMatch(

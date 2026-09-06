@@ -1,23 +1,38 @@
-import { getRecentCaptures } from "../db/captures";
-import { demoCaptures } from "../db/demo";
+import {
+  localDateForInstant,
+  type CaptureArchive,
+} from "../db/capture-archive";
+import { getCaptureArchive, getDisplayTimeZone } from "../db/captures";
+import { createDemoCaptures } from "../db/demo";
 import { SkyTimeline } from "./components/SkyTimeline";
 
 export const dynamic = "force-dynamic";
 
 export default async function Home() {
-  let captures = demoCaptures;
+  const timeZone = getDisplayTimeZone();
+  const now = new Date();
+  const date = localDateForInstant(now, timeZone);
+  const sampleCaptures = createDemoCaptures(date, timeZone);
+  let archive: CaptureArchive = {
+    date,
+    timeZone,
+    captureCount: sampleCaptures.length,
+    invalidCaptureCount: 0,
+    isCurrentDay: true,
+    captures: sampleCaptures,
+  };
   let isLive = false;
 
   try {
-    const liveCaptures = await getRecentCaptures(24);
-    if (liveCaptures.length > 0) {
-      captures = liveCaptures;
+    const liveArchive = await getCaptureArchive(date, timeZone, now);
+    if (liveArchive.captureCount > 0) {
+      archive = liveArchive;
       isLive = true;
     }
   } catch {
-    // The designed sample keeps local previews and a fresh deployment useful
-    // until the first migration and phone upload have completed.
+    // Keep a complete designed day visible in local development and before the
+    // first production capture arrives.
   }
 
-  return <SkyTimeline initialCaptures={captures} initialIsLive={isLive} />;
+  return <SkyTimeline initialArchive={archive} initialIsLive={isLive} />;
 }
