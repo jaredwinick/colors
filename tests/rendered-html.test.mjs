@@ -35,7 +35,9 @@ test("the production bundle and sky archive surface are present", async () => {
   assert.match(archivePage, /redirect\(archiveUrl\(selection\.date\)\)/);
   assert.match(dayPage, /params: Promise<\{ date: string \}>/);
   assert.match(dayPage, /renderArchivePage\(date\)/);
-  assert.match(timeline, /Atmospheric ribbon/);
+  assert.match(timeline, /colors of the sky/);
+  assert.doesNotMatch(timeline, /Atmospheric ribbon|accent-preserving widths/);
+  assert.match(timeline, /https:\/\/github\.com\/jaredwinick\/colors/);
   assert.match(timeline, /Palette · newest first/);
   assert.match(timeline, /accentPreservingWidths/);
   assert.match(timeline, /archive\.timeZone/);
@@ -66,7 +68,7 @@ test("the production bundle and sky archive surface are present", async () => {
   assert.match(timeline, /if \(!initialIsLive \|\| !archive\.isCurrentDay\) return/);
   assert.match(timeline, /No captures were recorded for this day/);
   assert.doesNotMatch(timeline, /A day written|className="sky-frame"|>Source</);
-  assert.match(layout, /Colors — a day written by the sky/);
+  assert.match(layout, /Colors of the Sky/);
   assert.match(layout, /og\.png/);
   assert.match(worker, /url\.pathname\.startsWith\("\/assets\/"\)/);
   assert.match(worker, /return env\.ASSETS\.fetch\(request\)/);
@@ -76,12 +78,14 @@ test("the production bundle and sky archive surface are present", async () => {
   assert.match(styles, /min-width: 0/);
   assert.match(
     styles,
-    /\.capture-image-stage-preview\s*\{[^}]*aspect-ratio: 4 \/ 3/s,
+    /\.capture-image-stage-preview\s*\{[^}]*aspect-ratio: 3 \/ 4/s,
   );
   assert.match(
     styles,
-    /\.capture-image-stage-viewer\s*\{[^}]*height: min\(76dvh, 860px\)/s,
+    /\.capture-image-stage-viewer\s*\{[^}]*aspect-ratio: 3 \/ 4/s,
   );
+  assert.match(styles, /object-fit: contain/);
+  assert.match(styles, /object-position: center/);
   assert.doesNotMatch(
     `${page}\n${archivePage}\n${dayPage}\n${timeline}\n${imageOverlays}\n${layout}\n${packageJson}`,
     /codex-preview|react-loading-skeleton|Starter Project/i,

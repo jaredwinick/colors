@@ -12,7 +12,7 @@ export async function generateMetadata(): Promise<Metadata> {
     requestHeaders.get("x-forwarded-proto") ??
     (host.startsWith("localhost") ? "http" : "https");
   const origin = `${protocol}://${host}`;
-  const title = "Colors — a day written by the sky";
+  const title = "Colors of the Sky";
   const description =
     "A living, 24-hour archive of color palettes gathered from the sky.";
 
@@ -29,7 +29,7 @@ export async function generateMetadata(): Promise<Metadata> {
           url: `${origin}/og.png`,
           width: 1200,
           height: 630,
-          alt: "Colors — a day written by the sky",
+          alt: "Colors of the Sky",
         },
       ],
     },
