@@ -2,6 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { imagePreviewPosition } from "../app/components/image-preview-position.ts";
+import {
+  captureNavigationIndex,
+  captureSwipeDirection,
+} from "../app/components/capture-swipe.ts";
 
 test("image previews prefer the space above the intended row", () => {
   assert.deepEqual(
@@ -28,4 +32,34 @@ test("image previews move below top rows and stay inside the viewport", () => {
     ),
     { left: 704, top: 148 },
   );
+});
+
+test("horizontal swipes navigate in newest-first timeline order", () => {
+  assert.equal(
+    captureSwipeDirection({ x: 220, y: 100 }, { x: 120, y: 108 }),
+    "next",
+  );
+  assert.equal(
+    captureSwipeDirection({ x: 120, y: 100 }, { x: 220, y: 92 }),
+    "previous",
+  );
+});
+
+test("short or mostly vertical gestures do not navigate", () => {
+  assert.equal(
+    captureSwipeDirection({ x: 100, y: 100 }, { x: 140, y: 102 }),
+    null,
+  );
+  assert.equal(
+    captureSwipeDirection({ x: 100, y: 100 }, { x: 155, y: 180 }),
+    null,
+  );
+});
+
+test("capture navigation stops at both ends of the timeline", () => {
+  assert.equal(captureNavigationIndex(3, 8, "previous"), 2);
+  assert.equal(captureNavigationIndex(3, 8, "next"), 4);
+  assert.equal(captureNavigationIndex(0, 8, "previous"), null);
+  assert.equal(captureNavigationIndex(7, 8, "next"), null);
+  assert.equal(captureNavigationIndex(-1, 8, "next"), null);
 });
