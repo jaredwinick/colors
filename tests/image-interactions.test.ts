@@ -9,7 +9,7 @@ test("image previews prefer the space above the intended row", () => {
       { top: 500, right: 900, bottom: 512 },
       { width: 1000, height: 800 },
     ),
-    { left: 620, top: 234 },
+    { left: 620, top: 58 },
   );
 });
 
@@ -26,6 +26,6 @@ test("image previews move below top rows and stay inside the viewport", () => {
       { top: 590, right: 1000, bottom: 602 },
       { width: 1000, height: 620 },
     ),
-    { left: 704, top: 324 },
+    { left: 704, top: 148 },
   );
 });

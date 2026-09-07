@@ -12,7 +12,7 @@ export type PreviewViewport = {
 export function imagePreviewPosition(
   anchor: PreviewAnchor,
   viewport: PreviewViewport,
-  preview = { width: 280, height: 254 },
+  preview = { width: 280, height: 430 },
 ) {
   const margin = 16;
   const gap = 12;

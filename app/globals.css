@@ -66,7 +66,7 @@ a {
 
 .archive-header {
   display: grid;
-  grid-template-columns: 128px minmax(0, 1fr) auto;
+  grid-template-columns: 170px minmax(0, 1fr) auto;
   gap: 32px;
   align-items: start;
   padding: 34px 40px 28px;
@@ -84,21 +84,6 @@ a {
 
 .archive-title {
   min-width: 0;
-}
-
-.archive-kicker {
-  max-width: 420px;
-  margin: 1px 0 8px;
-  color: var(--accent);
-  font-size: 11px;
-  font-weight: 540;
-  letter-spacing: 0.13em;
-  line-height: 1.7;
-  text-transform: uppercase;
-}
-
-.archive-kicker span {
-  padding: 0 0.18em;
 }
 
 h1 {
@@ -284,7 +269,7 @@ h1 {
 .capture-preview {
   position: fixed;
   z-index: 40;
-  width: min(280px, calc(100vw - 32px));
+  width: min(280px, calc(100vw - 32px), 45dvh);
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--line) 76%, var(--ink));
   border-radius: 13px;
@@ -305,13 +290,15 @@ h1 {
 
 .capture-image-stage-preview {
   width: 100%;
-  aspect-ratio: 4 / 3;
+  aspect-ratio: 3 / 4;
 }
 
 .capture-image-stage img {
+  display: block;
   width: 100%;
   height: 100%;
   object-fit: contain;
+  object-position: center;
 }
 
 .capture-image-stage[data-image-state="loading"] img,
@@ -370,7 +357,7 @@ h1 {
 }
 
 .capture-dialog {
-  width: min(1040px, calc(100% - 32px));
+  width: min(720px, calc(100% - 32px), 55dvh);
   max-width: none;
   max-height: calc(100dvh - 32px);
   margin: auto;
@@ -452,8 +439,9 @@ h1 {
 
 .capture-image-stage-viewer {
   width: 100%;
-  height: min(76dvh, 860px);
-  min-height: 340px;
+  height: auto;
+  min-height: 0;
+  aspect-ratio: 3 / 4;
 }
 
 @keyframes preview-arrive {
@@ -513,6 +501,13 @@ h1 {
   text-underline-offset: 4px;
 }
 
+.archive-footer-links {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px 20px;
+}
+
 @media (prefers-color-scheme: dark) {
   :root {
     --page: #0d1012;
@@ -551,11 +546,6 @@ h1 {
     grid-template-columns: 1fr;
     gap: 18px;
     padding: 24px 18px 21px;
-  }
-
-  .archive-kicker {
-    max-width: 310px;
-    margin-bottom: 7px;
   }
 
   h1 {
@@ -597,7 +587,7 @@ h1 {
   }
 
   .capture-dialog {
-    width: calc(100% - 16px);
+    width: min(calc(100% - 16px), 55dvh);
     max-height: calc(100dvh - 16px);
   }
 
@@ -630,8 +620,8 @@ h1 {
   }
 
   .capture-image-stage-viewer {
-    height: min(76dvh, 760px);
-    min-height: 300px;
+    height: auto;
+    min-height: 0;
   }
 
   .empty-state {
@@ -647,6 +637,10 @@ h1 {
     grid-template-columns: 1fr;
     gap: 13px;
     padding: 21px 18px 24px;
+  }
+
+  .archive-footer-links {
+    justify-content: flex-start;
   }
 }
 

@@ -271,14 +271,14 @@ export function SkyTimeline({
   return (
     <main className="archive-shell">
       <header className="archive-header">
-        <a className="wordmark" href="#timeline" aria-label="Colors archive home">
-          colors
+        <a
+          className="wordmark"
+          href="#timeline"
+          aria-label="Colors of the Sky archive home"
+        >
+          colors of the sky
         </a>
         <div className="archive-title">
-          <p className="archive-kicker">
-            Atmospheric ribbon <span aria-hidden="true">·</span> accent-preserving
-            widths
-          </p>
           <h1>{formatDate(archive.date)}</h1>
           <nav className="day-navigation" aria-label="Archive day navigation">
             <a
@@ -424,7 +424,12 @@ export function SkyTimeline({
           Each ribbon distills one photograph. Rare colors retain a visible
           place while their original measured weights remain unchanged.
         </p>
-        <a href="#timeline">Return to newest</a>
+        <nav className="archive-footer-links" aria-label="Footer links">
+          <a href="#timeline">Return to newest</a>
+          <a href="https://github.com/jaredwinick/colors">
+            View source on GitHub <span aria-hidden="true">↗</span>
+          </a>
+        </nav>
       </footer>
 
       <CaptureImagePreview preview={preview} />
