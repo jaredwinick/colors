@@ -50,10 +50,18 @@ function OnDemandImage({
       data-image-state={state}
     >
       {state === "loading" ? (
-        <span className="capture-image-loading">Loading photograph…</span>
+        <span
+          className="capture-image-loading"
+          role={kind === "viewer" ? "status" : undefined}
+        >
+          Loading photograph…
+        </span>
       ) : null}
       {state === "unavailable" ? (
-        <div className="capture-image-unavailable" role="status">
+        <div
+          className="capture-image-unavailable"
+          role={kind === "viewer" ? "alert" : undefined}
+        >
           Photograph unavailable
           <small>Move away and try again.</small>
         </div>
@@ -65,6 +73,7 @@ function OnDemandImage({
         src={capture.imageUrl}
         alt={`Sky photograph captured ${timestamp}`}
         decoding="async"
+        draggable={false}
         onLoad={() => setState("ready")}
         onError={() => setState("unavailable")}
       />
@@ -130,6 +139,7 @@ export function CaptureImageDialog({
       className="capture-dialog"
       ref={dialogRef}
       aria-labelledby="capture-dialog-title"
+      aria-describedby="capture-dialog-description"
       onClose={onDismiss}
       onCancel={(event) => {
         event.preventDefault();
@@ -154,6 +164,10 @@ export function CaptureImageDialog({
             <span>Close photograph</span>
           </button>
         </header>
+        <p className="sr-only" id="capture-dialog-description">
+          Press Escape or use the Close photograph button to return to the
+          selected palette.
+        </p>
         <OnDemandImage
           key={viewer.capture.id}
           capture={viewer.capture}

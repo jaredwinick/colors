@@ -9,7 +9,7 @@
     "dev": "vinext dev",
     "build": "vinext build",
     "start": "vinext start",
-    "test": "pnpm run build && node --test tests/rendered-html.test.mjs && node --experimental-strip-types --test tests/ingest-idempotency.test.ts tests/capture-archive.test.ts tests/timeline-presentation.test.ts tests/image-interactions.test.ts tests/archive-navigation.test.ts",
+    "test": "pnpm run build && node --test tests/rendered-html.test.mjs tests/web-performance-budget.test.mjs && node --experimental-strip-types --test tests/ingest-idempotency.test.ts tests/capture-archive.test.ts tests/timeline-presentation.test.ts tests/image-interactions.test.ts tests/archive-navigation.test.ts tests/timeline-quality.test.ts tests/color-contrast.test.ts tests/archive-page-cache.test.ts",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate"
   },

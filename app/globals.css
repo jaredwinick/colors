@@ -21,15 +21,26 @@
   box-sizing: border-box;
 }
 
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 html {
-  min-width: 320px;
+  min-width: 0;
   background: var(--page);
   color: var(--ink);
   scroll-behavior: smooth;
 }
 
 body {
-  min-width: 320px;
+  min-width: 0;
   margin: 0;
   background:
     radial-gradient(circle at 20% -10%, rgba(255, 255, 255, 0.95), transparent 34rem),
@@ -79,7 +90,7 @@ a {
   max-width: 420px;
   margin: 1px 0 8px;
   color: var(--accent);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 540;
   letter-spacing: 0.13em;
   line-height: 1.7;
@@ -145,7 +156,7 @@ h1 {
   gap: 7px;
   padding-top: 1px;
   color: var(--muted);
-  font-size: 9px;
+  font-size: 11px;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.14em;
   line-height: 1.2;
@@ -187,7 +198,7 @@ h1 {
   gap: 16px;
   margin-bottom: 13px;
   color: var(--accent);
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 560;
   letter-spacing: 0.14em;
   line-height: 1;
@@ -217,7 +228,7 @@ h1 {
 
 .palette-row time {
   color: var(--accent);
-  font-size: 10px;
+  font-size: 11px;
   font-variant-numeric: tabular-nums;
   font-weight: 520;
   letter-spacing: -0.015em;
@@ -256,10 +267,6 @@ h1 {
 .palette-trigger:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 3px;
-}
-
-.palette-trigger:hover .palette-band {
-  filter: saturate(1.06) brightness(1.03);
 }
 
 .palette-band-newest {
@@ -315,7 +322,7 @@ h1 {
 .capture-image-loading {
   position: absolute;
   color: rgba(219, 229, 234, 0.72);
-  font-size: 10px;
+  font-size: 11px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
@@ -329,7 +336,7 @@ h1 {
   min-height: 180px;
   padding: 24px;
   color: rgba(219, 229, 234, 0.8);
-  font-size: 11px;
+  font-size: 12px;
   letter-spacing: 0.06em;
   text-align: center;
   text-transform: uppercase;
@@ -338,7 +345,7 @@ h1 {
 .capture-image-unavailable small {
   margin-top: 7px;
   color: rgba(219, 229, 234, 0.5);
-  font-size: 9px;
+  font-size: 11px;
   text-transform: none;
 }
 
@@ -348,7 +355,7 @@ h1 {
   gap: 12px;
   padding: 10px 11px;
   color: var(--muted);
-  font-size: 8px;
+  font-size: 11px;
   letter-spacing: 0.1em;
   line-height: 1.25;
   text-transform: uppercase;
@@ -399,7 +406,7 @@ h1 {
 .capture-dialog-header p {
   margin: 0 0 4px;
   color: var(--accent);
-  font-size: 8px;
+  font-size: 11px;
   font-weight: 560;
   letter-spacing: 0.14em;
   text-transform: uppercase;
@@ -423,7 +430,7 @@ h1 {
   background: transparent;
   color: var(--ink);
   cursor: pointer;
-  font: 540 9px/1 var(--sans);
+  font: 540 11px/1 var(--sans);
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
@@ -477,7 +484,7 @@ h1 {
 .empty-state span,
 .record-note {
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.6;
 }
 
@@ -493,7 +500,7 @@ h1 {
   padding: 24px 40px 27px;
   border-top: 1px solid var(--line);
   color: var(--muted);
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1.55;
 }
 
@@ -578,7 +585,7 @@ h1 {
   }
 
   .palette-row time {
-    font-size: 9px;
+    font-size: 11px;
   }
 
   .palette-band {
@@ -643,6 +650,27 @@ h1 {
   }
 }
 
+@media (hover: hover) and (pointer: fine) {
+  .palette-trigger:hover .palette-band {
+    filter: saturate(1.06) brightness(1.03);
+  }
+}
+
+@media (hover: none), (pointer: coarse) {
+  .palette-row {
+    min-height: 18px;
+  }
+
+  .palette-band,
+  .palette-trigger {
+    height: 14px;
+  }
+
+  .palette-trigger {
+    cursor: pointer;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;
@@ -650,5 +678,14 @@ h1 {
 
   .capture-preview {
     animation: none;
+  }
+
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
   }
 }
