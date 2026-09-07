@@ -1,6 +1,7 @@
 /** Cloudflare Worker entry point for the vinext-starter template. */
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
 import handler from "vinext/server/app-router-entry";
+import { withArchivePageCache } from "./archive-cache";
 
 interface Env {
   ASSETS: Fetcher;
@@ -32,6 +33,13 @@ const worker = {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 
+    // With `run_worker_first` enabled, compiled client assets reach this Worker
+    // before Cloudflare's automatic asset handling. Serve those immutable files
+    // directly so the app router only receives application and API requests.
+    if (url.pathname.startsWith("/assets/")) {
+      return env.ASSETS.fetch(request);
+    }
+
     if (url.pathname === "/_vinext/image") {
       const allowedWidths = [...DEFAULT_DEVICE_SIZES, ...DEFAULT_IMAGE_SIZES];
       return handleImageOptimization(request, {
@@ -43,7 +51,12 @@ const worker = {
       }, allowedWidths);
     }
 
-    return handler.fetch(request, env, ctx);
+    const response = await handler.fetch(request, env, ctx);
+    return withArchivePageCache(
+      request,
+      response,
+      env.DISPLAY_TIME_ZONE?.trim(),
+    );
   },
 };
 

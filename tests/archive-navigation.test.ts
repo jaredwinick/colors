@@ -6,7 +6,10 @@ import {
   archiveUrl,
   resolveArchiveDate,
 } from "../app/archive-navigation.ts";
-import { mergeCaptureArchives } from "../app/components/archive-refresh.ts";
+import {
+  captureAdditionCount,
+  mergeCaptureArchives,
+} from "../app/components/archive-refresh.ts";
 import type {
   CaptureArchive,
   CaptureView,
@@ -83,4 +86,6 @@ test("current-day refresh merges one new capture exactly once and newest first",
   assert.equal(merged.captureCount, 2);
   assert.deepEqual(current, currentBefore);
   assert.deepEqual(incoming, incomingBefore);
+  assert.equal(captureAdditionCount(current, incoming), 1);
+  assert.equal(captureAdditionCount(merged, incoming), 0);
 });

@@ -1,6 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+} from "react";
 import {
   localDateForInstant,
   type CaptureArchive,
@@ -16,41 +21,22 @@ import {
 } from "./CaptureImageOverlays";
 import { imagePreviewPosition } from "./image-preview-position";
 import { accentPreservingWidths } from "./palette-widths";
-import { mergeCaptureArchives } from "./archive-refresh";
+import {
+  captureAdditionCount,
+  mergeCaptureArchives,
+} from "./archive-refresh";
+import {
+  formatDate,
+  formatTime,
+  formatTimestamp,
+} from "./timeline-format";
+import { timelineNavigationIndex } from "./timeline-keyboard";
 
 type Props = {
   initialArchive: CaptureArchive;
   initialCurrentDate: string;
   initialIsLive: boolean;
 };
-
-function formatTime(value: string, timeZone: string) {
-  return new Intl.DateTimeFormat("en-US", {
-    timeZone,
-    hour: "2-digit",
-    minute: "2-digit",
-    hourCycle: "h23",
-  }).format(new Date(value));
-}
-
-function formatDate(value: string) {
-  const [year, month, day] = value.split("-").map(Number);
-  return new Intl.DateTimeFormat("en-US", {
-    timeZone: "UTC",
-    weekday: "long",
-    month: "long",
-    day: "numeric",
-    year: "numeric",
-  }).format(new Date(Date.UTC(year, month - 1, day)));
-}
-
-function formatTimestamp(value: string, timeZone: string) {
-  return new Intl.DateTimeFormat("en-US", {
-    timeZone,
-    dateStyle: "full",
-    timeStyle: "short",
-  }).format(new Date(value));
-}
 
 function paletteDescription(capture: CaptureView) {
   return capture.palette
@@ -60,14 +46,24 @@ function paletteDescription(capture: CaptureView) {
     .join("; ");
 }
 
-function PaletteBand({ capture, newest }: { capture: CaptureView; newest: boolean }) {
+function PaletteBand({
+  capture,
+  newest,
+  interactive = false,
+}: {
+  capture: CaptureView;
+  newest: boolean;
+  interactive?: boolean;
+}) {
   const widths = accentPreservingWidths(capture.palette);
+  const description = `${newest ? "Newest palette. " : ""}${paletteDescription(capture)}`;
 
   return (
     <div
       className={`palette-band${newest ? " palette-band-newest" : ""}`}
-      role="img"
-      aria-label={`${newest ? "Newest palette. " : ""}${paletteDescription(capture)}`}
+      role={interactive ? undefined : "img"}
+      aria-label={interactive ? undefined : description}
+      aria-hidden={interactive ? true : undefined}
     >
       {capture.palette.map((color, index) => (
         <span
@@ -96,6 +92,12 @@ export function SkyTimeline({
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [preview, setPreview] = useState<CapturePreview | null>(null);
   const [viewer, setViewer] = useState<CaptureViewer | null>(null);
+  const [activeCaptureId, setActiveCaptureId] = useState<string | null>(() =>
+    initialArchive.captures.find(({ imageUrl }) => Boolean(imageUrl))?.id ?? null,
+  );
+  const [refreshAnnouncement, setRefreshAnnouncement] = useState("");
+  const archiveRef = useRef(initialArchive);
+  const triggerRefs = useRef(new Map<string, HTMLButtonElement>());
   const dialogRef = useRef<HTMLDialogElement>(null);
   const viewerOrigin = useRef<HTMLButtonElement | null>(null);
 
@@ -105,10 +107,7 @@ export function SkyTimeline({
     intent: PreviewIntent,
   ) => {
     if (!capture.imageUrl) return;
-    if (
-      intent === "pointer" &&
-      !window.matchMedia("(hover: hover) and (pointer: fine)").matches
-    ) {
+    if (!window.matchMedia("(hover: hover) and (pointer: fine)").matches) {
       return;
     }
     const rect = element.getBoundingClientRect();
@@ -138,6 +137,7 @@ export function SkyTimeline({
   ) => {
     if (!capture.imageUrl) return;
     viewerOrigin.current = origin;
+    setActiveCaptureId(capture.id);
     setPreview(null);
     setViewer({
       capture,
@@ -174,7 +174,16 @@ export function SkyTimeline({
         if (!response.ok) return;
         const nextArchive = (await response.json()) as CaptureArchive;
         if (disposed || request !== controller) return;
-        setArchive((current) => mergeCaptureArchives(current, nextArchive));
+        const currentArchive = archiveRef.current;
+        const additions = captureAdditionCount(currentArchive, nextArchive);
+        const mergedArchive = mergeCaptureArchives(currentArchive, nextArchive);
+        archiveRef.current = mergedArchive;
+        setArchive(mergedArchive);
+        if (additions > 0) {
+          setRefreshAnnouncement(
+            `${additions} new sky capture${additions === 1 ? "" : "s"} added.`,
+          );
+        }
         setCurrentDate(
           localDateForInstant(new Date(), nextArchive.timeZone),
         );
@@ -233,6 +242,31 @@ export function SkyTimeline({
     : archive.isCurrentDay
       ? "Live archive"
       : "Historical archive";
+  const visibleStatusLabel = isRefreshing ? "Refreshing archive" : statusLabel;
+  const interactiveCaptureIds = archive.captures
+    .filter(({ imageUrl }) => Boolean(imageUrl))
+    .map(({ id }) => id);
+  const tabStopId = interactiveCaptureIds.includes(activeCaptureId ?? "")
+    ? activeCaptureId
+    : interactiveCaptureIds[0];
+
+  const handlePaletteKeyDown = (
+    event: KeyboardEvent<HTMLButtonElement>,
+    captureId: string,
+  ) => {
+    const currentIndex = interactiveCaptureIds.indexOf(captureId);
+    const nextIndex = timelineNavigationIndex(
+      currentIndex,
+      interactiveCaptureIds.length,
+      event.key,
+    );
+    if (nextIndex === null || nextIndex === currentIndex) return;
+
+    event.preventDefault();
+    const nextId = interactiveCaptureIds[nextIndex];
+    setActiveCaptureId(nextId);
+    triggerRefs.current.get(nextId)?.focus();
+  };
 
   return (
     <main className="archive-shell">
@@ -281,7 +315,7 @@ export function SkyTimeline({
               }
               aria-hidden="true"
             />
-            {statusLabel}
+            {visibleStatusLabel}
           </span>
           <span>
             {archive.captureCount} capture{archive.captureCount === 1 ? "" : "s"}
@@ -294,12 +328,21 @@ export function SkyTimeline({
         className="timeline-panel"
         id="timeline"
         aria-labelledby="timeline-title"
+        aria-describedby="timeline-interaction-hint"
         aria-busy={isRefreshing}
       >
         <div className="timeline-heading">
           <span>Time</span>
           <h2 id="timeline-title">Palette · newest first</h2>
         </div>
+
+        <p className="sr-only" id="timeline-interaction-hint">
+          Source photographs are available on interactive palette rows. Use the
+          Up and Down Arrow keys to move between them, then press Enter to open.
+        </p>
+        <p className="sr-only" aria-live="polite" aria-atomic="true">
+          {refreshAnnouncement}
+        </p>
 
         {archive.captures.length === 0 ? (
           <div className="empty-state">
@@ -326,9 +369,16 @@ export function SkyTimeline({
                 </time>
                 {capture.imageUrl ? (
                   <button
+                    ref={(element) => {
+                      if (element) triggerRefs.current.set(capture.id, element);
+                      else triggerRefs.current.delete(capture.id);
+                    }}
                     type="button"
                     className="palette-trigger"
+                    tabIndex={capture.id === tabStopId ? 0 : -1}
                     aria-haspopup="dialog"
+                    aria-current={index === 0 ? "true" : undefined}
+                    aria-keyshortcuts="ArrowUp ArrowDown Home End Enter"
                     aria-label={`View source photograph captured ${formatTimestamp(
                       capture.capturedAt,
                       archive.timeZone,
@@ -337,13 +387,21 @@ export function SkyTimeline({
                       showPreview(capture, event.currentTarget, "pointer")
                     }
                     onPointerLeave={() => hidePreview(capture.id, "pointer")}
-                    onFocus={(event) =>
-                      showPreview(capture, event.currentTarget, "focus")
-                    }
+                    onFocus={(event) => {
+                      setActiveCaptureId(capture.id);
+                      showPreview(capture, event.currentTarget, "focus");
+                    }}
                     onBlur={() => hidePreview(capture.id, "focus")}
+                    onKeyDown={(event) =>
+                      handlePaletteKeyDown(event, capture.id)
+                    }
                     onClick={(event) => openViewer(capture, event.currentTarget)}
                   >
-                    <PaletteBand capture={capture} newest={index === 0} />
+                    <PaletteBand
+                      capture={capture}
+                      newest={index === 0}
+                      interactive
+                    />
                   </button>
                 ) : (
                   <PaletteBand capture={capture} newest={index === 0} />

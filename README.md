@@ -112,3 +112,7 @@ and refreshes immediately when it becomes visible again. Missing scheduled
 intervals are represented by the absence of a capture rather than placeholder
 rows; the header reports the number of captures that actually exist and labels
 15 minutes as the intended schedule.
+
+Responsive, accessibility, and performance expectations are documented in
+[docs/web-quality.md](docs/web-quality.md). The production test suite enforces
+the client transfer budgets and the archive's key structural guarantees.

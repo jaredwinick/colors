@@ -28,3 +28,17 @@ export function mergeCaptureArchives(
     captures,
   };
 }
+
+export function captureAdditionCount(
+  current: CaptureArchive,
+  incoming: CaptureArchive,
+): number {
+  if (current.date !== incoming.date) return incoming.captures.length;
+
+  const existingIds = new Set(current.captures.map(({ id }) => id));
+  return new Set(
+    incoming.captures
+      .filter(({ id }) => !existingIds.has(id))
+      .map(({ id }) => id),
+  ).size;
+}
