@@ -162,12 +162,12 @@ export function CaptureImageDialog({
   };
 
   const handleKeyDown = (event: KeyboardEvent<HTMLDialogElement>) => {
-    if (event.key === "ArrowLeft" && previousCapture) {
-      event.preventDefault();
-      navigate("previous");
-    } else if (event.key === "ArrowRight" && nextCapture) {
+    if (event.key === "ArrowLeft" && nextCapture) {
       event.preventDefault();
       navigate("next");
+    } else if (event.key === "ArrowRight" && previousCapture) {
+      event.preventDefault();
+      navigate("previous");
     }
   };
 
@@ -225,8 +225,8 @@ export function CaptureImageDialog({
           </button>
         </header>
         <p className="sr-only" id="capture-dialog-description">
-          Swipe left or press Right Arrow for the next, older capture. Swipe
-          right or press Left Arrow for the previous, newer capture. Press
+          Swipe left or press Left Arrow for the next, older capture. Swipe
+          right or press Right Arrow for the previous, newer capture. Press
           Escape or use the Close photograph button to return to the selected
           palette.
         </p>
@@ -252,34 +252,34 @@ export function CaptureImageDialog({
           <button
             type="button"
             className="capture-navigation-button"
-            disabled={!previousCapture}
-            aria-label={
-              previousCapture
-                ? `Previous, newer capture from ${previousCapture.timestamp}`
-                : "No previous, newer capture"
-            }
-            aria-keyshortcuts="ArrowLeft"
-            onClick={() => navigate("previous")}
-          >
-            <span aria-hidden="true">←</span>
-            <span>Newer</span>
-          </button>
-          <span className="capture-navigation-position" aria-hidden="true">
-            Swipe to browse
-          </span>
-          <button
-            type="button"
-            className="capture-navigation-button capture-navigation-button-next"
             disabled={!nextCapture}
             aria-label={
               nextCapture
                 ? `Next, older capture from ${nextCapture.timestamp}`
                 : "No next, older capture"
             }
-            aria-keyshortcuts="ArrowRight"
+            aria-keyshortcuts="ArrowLeft"
             onClick={() => navigate("next")}
           >
+            <span aria-hidden="true">←</span>
             <span>Older</span>
+          </button>
+          <span className="capture-navigation-position" aria-hidden="true">
+            Swipe to browse
+          </span>
+          <button
+            type="button"
+            className="capture-navigation-button capture-navigation-button-right"
+            disabled={!previousCapture}
+            aria-label={
+              previousCapture
+                ? `Previous, newer capture from ${previousCapture.timestamp}`
+                : "No previous, newer capture"
+            }
+            aria-keyshortcuts="ArrowRight"
+            onClick={() => navigate("previous")}
+          >
+            <span>Newer</span>
             <span aria-hidden="true">→</span>
           </button>
         </nav>
