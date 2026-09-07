@@ -70,8 +70,22 @@ test("the production bundle and sky archive surface are present", async () => {
   assert.match(imageOverlays, /aria-keyshortcuts="ArrowRight"/);
   assert.match(imageOverlays, /aria-label="Capture navigation"/);
   assert.match(imageOverlays, /aria-live="polite"/);
-  assert.match(imageOverlays, /disabled=\{!previousCapture\}/);
-  assert.match(imageOverlays, /disabled=\{!nextCapture\}/);
+  assert.match(
+    imageOverlays,
+    /disabled=\{!nextCapture\}[\s\S]*aria-keyshortcuts="ArrowLeft"[\s\S]*onClick=\{\(\) => navigate\("next"\)\}[\s\S]*<span>Older<\/span>/,
+  );
+  assert.match(
+    imageOverlays,
+    /capture-navigation-button-right[\s\S]*disabled=\{!previousCapture\}[\s\S]*aria-keyshortcuts="ArrowRight"[\s\S]*onClick=\{\(\) => navigate\("previous"\)\}[\s\S]*<span>Newer<\/span>/,
+  );
+  assert.match(
+    imageOverlays,
+    /event\.key === "ArrowLeft" && nextCapture[\s\S]*navigate\("next"\)/,
+  );
+  assert.match(
+    imageOverlays,
+    /event\.key === "ArrowRight" && previousCapture[\s\S]*navigate\("previous"\)/,
+  );
   assert.match(timeline, /captureNavigationIndex/);
   assert.match(timeline, /previousCapture=\{previousViewer\}/);
   assert.match(timeline, /nextCapture=\{nextViewer\}/);
