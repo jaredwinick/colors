@@ -44,6 +44,9 @@ Generate a long random token, configure it only in the hosting environment and
 on the phone, and never commit it. The schema migration in `drizzle/` creates
 the required indexes.
 
+The production release procedure, deployed version record, and rollback steps
+are maintained in [docs/cloudflare-deployment.md](docs/cloudflare-deployment.md).
+
 ## Ingest contract
 
 `POST /api/ingest` accepts `multipart/form-data` with:
