@@ -22,6 +22,10 @@ import {
 import { imagePreviewPosition } from "./image-preview-position";
 import { accentPreservingWidths } from "./palette-widths";
 import {
+  captureNavigationIndex,
+  type CaptureNavigationDirection,
+} from "./capture-swipe";
+import {
   captureAdditionCount,
   mergeCaptureArchives,
 } from "./archive-refresh";
@@ -246,6 +250,42 @@ export function SkyTimeline({
   const interactiveCaptureIds = archive.captures
     .filter(({ imageUrl }) => Boolean(imageUrl))
     .map(({ id }) => id);
+  const interactiveCaptures = archive.captures.filter(({ imageUrl }) =>
+    Boolean(imageUrl),
+  );
+  const viewerIndex = viewer
+    ? interactiveCaptures.findIndex(({ id }) => id === viewer.capture.id)
+    : -1;
+  const previousViewerIndex = captureNavigationIndex(
+    viewerIndex,
+    interactiveCaptures.length,
+    "previous",
+  );
+  const nextViewerIndex = captureNavigationIndex(
+    viewerIndex,
+    interactiveCaptures.length,
+    "next",
+  );
+  const previousViewer =
+    previousViewerIndex !== null
+      ? {
+          capture: interactiveCaptures[previousViewerIndex],
+          timestamp: formatTimestamp(
+            interactiveCaptures[previousViewerIndex].capturedAt,
+            archive.timeZone,
+          ),
+        }
+      : null;
+  const nextViewer =
+    nextViewerIndex !== null
+      ? {
+          capture: interactiveCaptures[nextViewerIndex],
+          timestamp: formatTimestamp(
+            interactiveCaptures[nextViewerIndex].capturedAt,
+            archive.timeZone,
+          ),
+        }
+      : null;
   const tabStopId = interactiveCaptureIds.includes(activeCaptureId ?? "")
     ? activeCaptureId
     : interactiveCaptureIds[0];
@@ -266,6 +306,15 @@ export function SkyTimeline({
     const nextId = interactiveCaptureIds[nextIndex];
     setActiveCaptureId(nextId);
     triggerRefs.current.get(nextId)?.focus();
+  };
+
+  const navigateViewer = (direction: CaptureNavigationDirection) => {
+    const destination = direction === "previous" ? previousViewer : nextViewer;
+    if (!destination) return;
+    setViewer(destination);
+    setActiveCaptureId(destination.capture.id);
+    viewerOrigin.current =
+      triggerRefs.current.get(destination.capture.id) ?? viewerOrigin.current;
   };
 
   return (
@@ -437,6 +486,9 @@ export function SkyTimeline({
         viewer={viewer}
         dialogRef={dialogRef}
         onDismiss={dismissViewer}
+        previousCapture={previousViewer}
+        nextCapture={nextViewer}
+        onNavigate={navigateViewer}
       />
     </main>
   );

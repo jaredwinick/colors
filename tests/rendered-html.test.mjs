@@ -11,6 +11,7 @@ test("the production bundle and sky archive surface are present", async () => {
     dayPage,
     timeline,
     imageOverlays,
+    miniPalette,
     layout,
     packageJson,
     worker,
@@ -22,6 +23,10 @@ test("the production bundle and sky archive surface are present", async () => {
     readFile(new URL("../app/components/SkyTimeline.tsx", import.meta.url), "utf8"),
     readFile(
       new URL("../app/components/CaptureImageOverlays.tsx", import.meta.url),
+      "utf8",
+    ),
+    readFile(
+      new URL("../app/components/CaptureMiniPalette.tsx", import.meta.url),
       "utf8",
     ),
     readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
@@ -59,6 +64,19 @@ test("the production bundle and sky archive surface are present", async () => {
   assert.match(imageOverlays, /role=\{kind === "viewer" \? "alert" : undefined\}/);
   assert.match(imageOverlays, /aria-describedby="capture-dialog-description"/);
   assert.match(imageOverlays, /key=\{preview\.capture\.id\}/);
+  assert.match(imageOverlays, /<CaptureMiniPalette capture=\{capture\}/);
+  assert.match(imageOverlays, /captureSwipeDirection/);
+  assert.match(imageOverlays, /aria-keyshortcuts="ArrowLeft"/);
+  assert.match(imageOverlays, /aria-keyshortcuts="ArrowRight"/);
+  assert.match(imageOverlays, /aria-label="Capture navigation"/);
+  assert.match(imageOverlays, /aria-live="polite"/);
+  assert.match(imageOverlays, /disabled=\{!previousCapture\}/);
+  assert.match(imageOverlays, /disabled=\{!nextCapture\}/);
+  assert.match(timeline, /captureNavigationIndex/);
+  assert.match(timeline, /previousCapture=\{previousViewer\}/);
+  assert.match(timeline, /nextCapture=\{nextViewer\}/);
+  assert.match(miniPalette, /accentPreservingWidths/);
+  assert.match(miniPalette, /role="img"/);
   assert.match(timeline, /archiveDateNeighbors/);
   assert.match(timeline, /aria-label="Archive day navigation"/);
   assert.match(timeline, /aria-disabled="true"/);
@@ -78,16 +96,14 @@ test("the production bundle and sky archive surface are present", async () => {
   assert.match(styles, /min-width: 0/);
   assert.match(
     styles,
-    /\.capture-image-stage-preview\s*\{[^}]*aspect-ratio: 3 \/ 4/s,
+    /\.capture-image-frame\s*\{[^}]*aspect-ratio: 3 \/ 4/s,
   );
-  assert.match(
-    styles,
-    /\.capture-image-stage-viewer\s*\{[^}]*aspect-ratio: 3 \/ 4/s,
-  );
+  assert.match(styles, /\.capture-mini-palette\s*\{/);
+  assert.match(styles, /touch-action: pan-y/);
   assert.match(styles, /object-fit: contain/);
   assert.match(styles, /object-position: center/);
   assert.doesNotMatch(
-    `${page}\n${archivePage}\n${dayPage}\n${timeline}\n${imageOverlays}\n${layout}\n${packageJson}`,
+    `${page}\n${archivePage}\n${dayPage}\n${timeline}\n${imageOverlays}\n${miniPalette}\n${layout}\n${packageJson}`,
     /codex-preview|react-loading-skeleton|Starter Project/i,
   );
 });
