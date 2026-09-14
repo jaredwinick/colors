@@ -17,7 +17,7 @@ its production soak test.
 
 - Application name: **Colors Camera**
 - Application ID and namespace: `com.jaredwinick.colors.camera`
-- Version: `0.10.0` (`versionCode` 14)
+- Version: `0.10.1` (`versionCode` 15)
 - Capture files: app-private `files/durable-captures`
 - Diagnostics and configuration: app-private storage
 - Ingest token: encrypted with a non-exportable Android Keystore AES-GCM key
@@ -78,10 +78,13 @@ cycle or **Upload pending captures now** resumes the same UUID and bytes.
 
 If normalization, mask validation, palette extraction, or the atomic queue
 transition fails, the raw JPEG returns to `STAGED` with a safe error code. The
-next cycle retries that source first. After a successful staged recovery, the
-same cycle still takes its one current-slot photograph when the pending limit
-allows it. Reboot reconciliation similarly returns interrupted `PROCESSING`
-work to `STAGED` and removes incomplete normalized output before retrying.
+next cycle retries that source first. A repeated deterministic palette
+quantization failure moves the preserved source to `ATTENTION_REQUIRED` rather
+than allowing it to block every later slot. After a successful staged recovery,
+the same cycle still takes its one current-slot photograph when the pending
+limit allows it. Reboot reconciliation similarly returns interrupted
+`PROCESSING` work to `STAGED` and removes incomplete normalized output before
+retrying.
 
 ## Configuration
 
@@ -211,6 +214,11 @@ small sunrise and sunset highlights. Configured palettes from three through ten
 colors always retain at least three dominant slots and use up to three accent
 slots.
 
+Valid one- and two-color frames, including uniformly black low-light captures,
+repeat their observed colors across the three minimum ingest entries and split
+the corresponding weights. This preserves the real aggregate color distribution
+without inventing artificial shades.
+
 The deterministic implementation uses no dithering, merges duplicate
 representatives, and emits uppercase `#RRGGBB` colors in descending-weight order
 with a stable hex tie-break. Final weights are calculated by assigning every
@@ -220,9 +228,8 @@ at six-decimal precision, matching the Worker's existing ingest shape.
 The complete JPEG is never altered by palette processing. Capture metadata
 stores the palette plus source/analysis dimensions, included-pixel count,
 requested and resulting color counts, elapsed time, and peak process memory. If
-the mask is invalid, fewer than three colors remain, or extraction otherwise
-fails, the app retains the complete normalized image and records a safe error
-instead of constructing an uploadable palette.
+the mask is invalid or extraction otherwise fails, the app retains the complete
+image and records a safe error instead of constructing an uploadable palette.
 
 Changing **Palette colors** or **Palette analysis dimension** in Production
 settings requires a preview from the latest committed image. The preview shows

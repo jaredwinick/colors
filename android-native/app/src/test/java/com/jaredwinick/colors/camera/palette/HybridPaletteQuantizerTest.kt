@@ -59,14 +59,27 @@ class HybridPaletteQuantizerTest {
     }
 
     @Test
-    fun `fewer than three distinct sampled colors fails safely`() {
-        val error = assertThrows(IllegalArgumentException::class.java) {
-            HybridPaletteQuantizer.quantize(
-                intArrayOf(0x102030, 0x102030, 0x405060, 0x405060),
-                8,
-            )
-        }
-        assertTrue(error.message.orEmpty().contains("requires 3-10"))
+    fun `one sampled color is repeated without inventing colors`() {
+        val palette = HybridPaletteQuantizer.quantize(IntArray(1_000) { 0x010203 }, 8)
+
+        assertEquals(3, palette.colors.size)
+        assertEquals(setOf("#010203"), palette.colors.map { it.hex }.toSet())
+        assertEquals(listOf(0.5, 0.25, 0.25), palette.colors.map { it.weight })
+        assertEquals(1.0, palette.colors.sumOf { it.weight }, 0.0000001)
+    }
+
+    @Test
+    fun `two sampled colors retain their aggregate distribution`() {
+        val pixels = IntArray(1_000) { index -> if (index < 800) 0x102030 else 0x405060 }
+
+        val first = HybridPaletteQuantizer.quantize(pixels, 8)
+        val second = HybridPaletteQuantizer.quantize(pixels, 8)
+
+        assertEquals(first, second)
+        assertEquals(3, first.colors.size)
+        assertEquals(0.8, first.colors.filter { it.hex == "#102030" }.sumOf { it.weight }, 0.0000001)
+        assertEquals(0.2, first.colors.filter { it.hex == "#405060" }.sumOf { it.weight }, 0.0000001)
+        assertEquals(1.0, first.colors.sumOf { it.weight }, 0.0000001)
     }
 
     @Test

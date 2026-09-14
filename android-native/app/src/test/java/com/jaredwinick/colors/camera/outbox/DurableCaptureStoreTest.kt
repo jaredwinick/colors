@@ -83,6 +83,26 @@ class DurableCaptureStoreTest {
     }
 
     @Test
+    fun `repeated deterministic failure retains source in attention and clears staged blocker`() {
+        val captureId = UUID.randomUUID().toString()
+        val source = jpeg(23)
+        store.rawFile(captureId).writeBytes(source)
+        store.recordStaged(captureId, "2026-09-01T12:00:00Z", DEVICE_ID)
+        store.markProcessing(captureId)
+
+        store.markAttention(captureId, "PALETTE_QUANTIZATION_INVALID")
+
+        val retained = requireNotNull(store.record(captureId))
+        assertEquals(DurableCaptureState.ATTENTION_REQUIRED, retained.state)
+        assertEquals("PALETTE_QUANTIZATION_INVALID", retained.lastErrorCode)
+        assertTrue(File(retained.imagePath).isFile)
+        assertTrue(source.contentEquals(File(retained.imagePath).readBytes()))
+        assertEquals(0, store.summary().staged)
+        assertEquals(1, store.summary().attentionRequired)
+        assertEquals(null, store.oldestStaged())
+    }
+
+    @Test
     fun `oldest staged work is deterministic`() {
         val later = "ffffffff-ffff-4fff-8fff-ffffffffffff"
         val tieSecond = "00000000-0000-4000-8000-000000000002"
