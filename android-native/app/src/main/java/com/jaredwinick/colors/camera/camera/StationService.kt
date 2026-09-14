@@ -705,8 +705,19 @@ class StationService : LifecycleService() {
                 )
             }
             processing.exceptionOrNull()?.let { error ->
+                val errorCode = processingErrorCode(error)
                 runCatching {
-                    captureRepository.returnToStaged(staged.captureId, processingErrorCode(error))
+                    when (
+                        StagedRecoveryPolicy.failureDisposition(
+                            previousErrorCode = staged.lastErrorCode,
+                            currentErrorCode = errorCode,
+                        )
+                    ) {
+                        StagedFailureDisposition.RETRY_STAGED ->
+                            captureRepository.returnToStaged(staged.captureId, errorCode)
+                        StagedFailureDisposition.RETAIN_ATTENTION ->
+                            captureRepository.markAttention(staged.captureId, errorCode)
+                    }
                 }
             }
             val next = processing.mapCatching { recovered ->

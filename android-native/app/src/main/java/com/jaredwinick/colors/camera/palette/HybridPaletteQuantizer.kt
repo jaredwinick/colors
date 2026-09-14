@@ -27,8 +27,11 @@ object HybridPaletteQuantizer {
         require(rgbPixels.isNotEmpty()) { "The validated sky mask included no pixels" }
 
         val histogram = exactHistogram(rgbPixels)
-        require(histogram.size >= WeightedPalette.MIN_COLORS) {
-            "Quantization produced ${histogram.size} colors; the ingest API requires 3-10"
+        if (histogram.size < WeightedPalette.MIN_COLORS) {
+            return paletteFromQuantized(
+                histogram.map { QuantizedColor(it.rgb, it.count) },
+                rgbPixels.size,
+            )
         }
         val bins = coarseBins(histogram).let { coarse ->
             if (coarse.size >= WeightedPalette.MIN_COLORS) coarse else exactBins(histogram)
@@ -81,10 +84,42 @@ object HybridPaletteQuantizer {
             .entries
             .map { QuantizedColor(it.key, it.value) }
             .sortedWith(compareByDescending<QuantizedColor> { it.count }.thenBy { it.rgb })
-        require(merged.size >= WeightedPalette.MIN_COLORS) {
-            "Quantization produced ${merged.size} colors; the ingest API requires 3-10"
+        require(merged.isNotEmpty()) { "Quantization produced no colors" }
+        if (merged.size < WeightedPalette.MIN_COLORS) {
+            return lowDiversityPalette(merged, totalPixels)
         }
         return normalize(merged, totalPixels)
+    }
+
+    /**
+     * The ingest contract requires at least three entries, while a valid dark frame may contain
+     * only one or two sampled RGB values. Repeating those exact values is more truthful than
+     * inventing nearby colors. Splitting the largest weight preserves the scene's aggregate color
+     * distribution and gives every required entry a positive deterministic weight.
+     */
+    private fun lowDiversityPalette(
+        colors: List<QuantizedColor>,
+        totalPixels: Int,
+    ): WeightedPalette {
+        val weights = normalizedMillionths(colors, totalPixels)
+        val entries = colors.mapIndexed { index, color ->
+            LowDiversityEntry(color.rgb, weights[index])
+        }.toMutableList()
+        while (entries.size < WeightedPalette.MIN_COLORS) {
+            val index = entries.indices.maxBy { entries[it].millionths }
+            val entry = entries[index]
+            val splitWeight = entry.millionths / 2
+            check(splitWeight > 0) { "Low-diversity palette weight cannot be split" }
+            entries[index] = entry.copy(millionths = splitWeight)
+            entries += entry.copy(millionths = entry.millionths - splitWeight)
+        }
+        val weighted = entries.map { entry ->
+            WeightedPaletteColor(
+                hex = WeightedPalette.hex(entry.rgb),
+                weight = entry.millionths.toDouble() / WEIGHT_SCALE,
+            )
+        }.sortedWith(compareByDescending<WeightedPaletteColor> { it.weight }.thenBy { it.hex })
+        return WeightedPalette(weighted).requireValid()
     }
 
     private fun exactHistogram(rgbPixels: IntArray): List<HistogramColor> = rgbPixels
@@ -245,10 +280,7 @@ object HybridPaletteQuantizer {
     }
 
     private fun normalize(colors: List<QuantizedColor>, totalPixels: Int): WeightedPalette {
-        val millionths = colors.map { color ->
-            (color.count.toDouble() * WEIGHT_SCALE / totalPixels).roundToInt()
-        }.toMutableList()
-        millionths[0] += WEIGHT_SCALE - millionths.sum()
+        val millionths = normalizedMillionths(colors, totalPixels)
         require(millionths.all { it > 0 }) { "Quantization produced a zero-weight color" }
         val weighted = colors.mapIndexed { index, color ->
             WeightedPaletteColor(
@@ -258,6 +290,14 @@ object HybridPaletteQuantizer {
         }.sortedWith(compareByDescending<WeightedPaletteColor> { it.weight }.thenBy { it.hex })
         return WeightedPalette(weighted).requireValid()
     }
+
+    private fun normalizedMillionths(
+        colors: List<QuantizedColor>,
+        totalPixels: Int,
+    ): MutableList<Int> = colors.map { color ->
+        (color.count.toDouble() * WEIGHT_SCALE / totalPixels).roundToInt()
+    }.toMutableList()
+        .also { weights -> weights[0] += WEIGHT_SCALE - weights.sum() }
 
     private data class HistogramColor(val rgb: Int, val count: Int) {
         val red: Int get() = rgb shr 16 and 0xff
@@ -269,6 +309,11 @@ object HybridPaletteQuantizer {
         val rgb: Int,
         val count: Int,
         val lab: OklabColor,
+    )
+
+    private data class LowDiversityEntry(
+        val rgb: Int,
+        val millionths: Int,
     )
 
     private class BinAccumulator {
